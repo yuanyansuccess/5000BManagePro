@@ -43,8 +43,10 @@ scripts/verify_backend.py # 后端自检（建表+CRUD闭环）
 - 后端 API：http://127.0.0.1:8000
 - 前端静态：http://127.0.0.1:8080
 
-## 版本管理（Git / GitHub，2026-08-13）
+## 版本管理（Git / GitHub，2026-08-13 修正）
+- 真实账号：**yuanyansuccess**（SSH），非全局 config 的 yuanyan。SSH key 在 ~/.ssh/id_ed25519
+- 远程目标：git@github.com:yuanyansuccess/5000BManagePro.git（SSH 协议）
 - 目录结构（分文件夹提交）：`backend/`（后端FastAPI）`frontend/`（前端原生）`client/`（客户端服务程序=SVN钩子推送脚本）`scripts/`（服务端脚本）
-- 本机 git 已 init，首次提交 61 个代码文件（已配 .gitignore 排除 .pyc/logs/.idea/temp）
-- 远程仓库目标：GitHub `yuanyan/5000BManagePro`（待袁总提供 PAT 后 `git remote add` + `push`）
+- 本机 git 已 init，已提交 2 个（初始化 + 记忆补充），共 61+ 代码文件（.gitignore 排除 .pyc/logs/.idea/temp）
+- 当前状态（2026-08-13）：本地 master/main 已就绪，远端仓库**袁总需在 GitHub 网页手动建**（SSH key 不能建库）；建好后跑 temp/push_ssh.ps1 推送
 - 提交铁律：袁总提醒后才 push；只提交代码；禁止 git add -A 裸用，精准 add；不提交 temp/logs/二进制
