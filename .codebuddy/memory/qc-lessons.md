@@ -59,3 +59,8 @@
 - 现象：08-11/08-12 两轮 SVN 集成（钩子脚本/两张表/客户端关注闭环/start.bat）做完未写记忆，session-log 停更于 08-10，袁总下次开会话以为历史全丢
 - 根因：把"写记忆"当成可选项，做完活直接交差
 - 修复：凭文件 LastWriteTime + 代码内容倒推补记；work-rules 第5条强化为"每次对话结束前必须写 session-log，写完记忆才能汇报"
+
+## 坑13 · GitHub 建库/推送不能用 CodeBuddy 平台 token【凭证坑】
+- 现象：connect_cloud_service 拿到的 token 调 GitHub API 报 401 Bad credentials；本机无 gh CLI、无 Windows 凭据里 GitHub token
+- 根因：CodeBuddy IDE 会话 token ≠ GitHub PAT，两者不通
+- 修复：GitHub 操作必须向袁总要 GitHub 自己发的 Personal Access Token（repo 权限）；已备 temp/push_to_github.ps1（Basic Auth 内嵌 token 建库+push），袁总给 PAT 即跑。严禁用平台 token 顶替

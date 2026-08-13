@@ -2,6 +2,16 @@
 
 > 作者：袁燕 | 倒序看最新 | 跨会话生效
 
+## 2026-08-13（第七轮：搭建Git版本管理 + client客户端目录）
+- 需求：在 GitHub 新建 5000B 管理系统仓库，前端/后端/客户端分文件夹提交；本机工作区也建 client/ 便于同步；以后每轮袁总提醒即提交 GitHub
+- 完成：
+  - 新建 `client/svn_post_commit_push.py`（SVN钩子推送脚本，作为客户端服务程序独立目录，本机已建，与 scripts/ 服务端脚本区分）
+  - 新建 `.gitignore`（排除 __pycache__/.pyc/logs/temp/.idea/.vscode/.env/*.pem/build 等，铁律：只提交代码）
+  - `git init` + 首次 commit：61 个代码文件全入库（backend/frontend/client/scripts/.codebuddy 记忆/README 等），无 .pyc/.log/.idea 误入
+  - 记忆更新：user-profile（Git账号 yuanyan/2500749455@qq.com + 提交约定）、project-context（目录结构+Git铁律）、本次日志
+- 阻塞：GitHub 建远程库需 PAT。本机 Windows 凭据管理器无 GitHub token；connect_cloud_service 拿到的是 CodeBuddy 平台 token（对 GitHub API 无效，实测 401）；QtSmartCabinet 本地也无 GitHub remote。→ 已备脚本 temp/push_to_github.ps1：袁总提供 PAT 后 `$env:GH_PAT="ghp_xxx"; .\temp\push_to_github.ps1` 一键建库+推送（temp/ 不入库）。注：脚本用 Basic Auth 内嵌 token，推送后建议袁总去 GitHub 改密码/撤 token 不影响
+- 坑13（待固化）：GitHub API 建库不能用 CodeBuddy 平台 token 顶替，必须是 GitHub 自己发的 PAT（repo 权限）
+
 ## 2026-08-13（补记：找回历史会话 + 强化记忆铁律）
 - 起因：袁总反馈"之前的会话没了"，核查发现 08-11/08-12 两轮 SVN 集成工作未写入 session-log（本文件停更于 08-10），凭文件修改时间+代码内容补记
 - 处理：补记 08-11/08-12 两轮日志；强化 work-rules.md 第5条（每次对话结束前必须写 session-log，写完记忆才能汇报）；建全局记忆索引
