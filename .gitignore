@@ -1,0 +1,47 @@
+# 作者：袁燕
+# 5000B 管理系统 .gitignore（Git提交规范铁律：只提交代码，临时/构建/隐私文件一律不提交）
+
+# ===== Python 缓存 =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# ===== 虚拟环境 =====
+venv/
+.venv/
+env/
+Env/
+
+# ===== 日志（运行产物）=====
+logs/
+*.log
+
+# ===== 临时文件（铁律：temp/ 不提交）=====
+temp/
+*.tmp
+*.bak
+
+# ===== IDE 工程文件（本机专属，跨机易冲突）=====
+.idea/
+.vscode/
+*.swp
+*.suo
+*.user
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 数据库/密钥（禁止入库）=====
+*.sqlite
+*.db
+.env
+secrets.json
+*.pem
+
+# ===== 构建产物 =====
+build/
+dist/
+*.egg-info/

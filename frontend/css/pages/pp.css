@@ -1,0 +1,31 @@
+/* 作者：袁燕
+   功能：项目策划 PP 页局部样式（PP 特有：版本徽标/阶段分组标题/利益相关方矩阵/估算轮次页签）。
+   设计：阶段条/节点页签/操作栏已放 common.css；本文件仅放 PP 特有微调。 */
+
+.pp-node-actions-note { font-size: 12px; color: var(--text-3); margin-left: auto; }
+
+/* 版本徽标（对标效果图 .ver-badge） */
+.ver-badge {
+  display: inline-block; min-width: 22px; padding: 2px 8px; border-radius: 8px;
+  background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 700; text-align: center;
+}
+
+/* 阶段分组标题（对标效果图 .phase-h） */
+.phase-h {
+  display: flex; align-items: center; gap: 10px; margin: 18px 0 10px;
+  font-size: 15px; font-weight: 800; color: var(--text-1);
+}
+.phase-h::before { content: ""; width: 4px; height: 18px; border-radius: 2px; background: var(--primary); }
+
+/* 利益相关方矩阵标记（对标效果图 .mark） */
+.stake-tbl .mark { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 5px; font-size: 12px; }
+.stake-tbl .mark.plan { background: var(--success-bg); color: var(--success-deep); }
+.stake-tbl .mark.none { color: var(--text-4); }
+
+/* 估算轮次页签（对标效果图 .rt-tabs / .rt-tab） */
+.rt-tabs { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+.rt-tab {
+  padding: 8px 16px; border-radius: 10px; background: #f5f7fa; color: var(--text-2);
+  font-size: 14px; cursor: pointer; border: 1px solid transparent;
+}
+.rt-tab.on { background: var(--primary-soft); color: var(--primary); border-color: #cfe0ff; font-weight: 600; }

@@ -1,0 +1,5 @@
+/* 作者：袁燕
+   功能：系统设置页（sys）局部样式。
+   设计：卡片/表单行已放 common.css；本文件仅放 sys 特有微调。 */
+
+.sys-section { margin-bottom: 14px; }

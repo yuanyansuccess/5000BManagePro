@@ -1,0 +1,15 @@
+/* 作者：袁燕
+   功能：用户管理页（user）局部样式（项目人员卡片网格 + 通用卡片信息行 + 头像）。
+   设计：列表/标签/表单已放 common.css；本文件放 user 特有。 */
+
+.user-role { font-size: 13px; }
+
+/* 项目人员卡片网格（对标效果图 .base-grid / .mc-card） */
+.base-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.mc-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.mc-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.mc-h .av { width: 38px; height: 38px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; }
+.mc-rpt { font-size: 13px; color: var(--text-2); padding: 3px 0; }
+
+/* 头像（表格/通用） */
+.av { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 15px; font-weight: 700; }

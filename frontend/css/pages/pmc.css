@@ -1,0 +1,73 @@
+/* 作者：袁燕
+   功能：项目监控 PMC 页局部样式（1:1 对标效果图 preview.html 962-978 等）。
+   设计：阶段步骤条（橙色渐变+脉动动画）、阶段状态卡、概览 mc-grid、阶段产出块。 */
+
+/* ===== PMC 阶段步骤条（对标效果图 962-978） ===== */
+.pmc-step { background: #fff; border: 1px solid #e3e8f0; border-radius: 14px; padding: 14px 18px 16px; margin-bottom: 14px; }
+.pmc-step-hd { font-size: 14px; color: #5a6678; margin-bottom: 14px; }
+.pmc-step-hd b { color: #fa541c; font-size: 17px; margin-left: 4px; }
+.pmc-step-bar { display: flex; align-items: flex-start; }
+.pmc-step .step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pmc-step .step::before { content: ''; position: absolute; top: 16px; left: 0; width: 50%; height: 3px; background: #eef1f6; z-index: 0; transition: background .3s; }
+.pmc-step .step::after { content: ''; position: absolute; top: 16px; right: 0; width: 50%; height: 3px; background: #eef1f6; z-index: 0; transition: background .3s; }
+.pmc-step .step:first-child::before { display: none; }
+.pmc-step .step:last-child::after { display: none; }
+.pmc-step .step.done::before, .pmc-step .step.done::after, .pmc-step .step.active::before { background: linear-gradient(90deg, #fa8c16, #fa541c); }
+.pmc-step .dot-num { position: relative; z-index: 1; width: 34px; height: 34px; border-radius: 50%; background: #eef1f6; color: #8a94a6; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; transition: all .3s; border: 2px solid #fff; }
+.pmc-step .step-label { margin-top: 8px; font-size: 13px; color: #8a94a6; transition: color .3s; white-space: nowrap; }
+.pmc-step .step.done .dot-num { background: #fff4e6; color: #fa8c16; }
+.pmc-step .step.done .step-label { color: #fa8c16; }
+.pmc-step .step.active .dot-num { background: linear-gradient(135deg, #fa8c16, #fa541c); color: #fff; box-shadow: 0 4px 12px rgba(250, 84, 28, .35); animation: pmcPulse 1.6s infinite; }
+.pmc-step .step.active .step-label { color: #fa541c; font-weight: 700; }
+@keyframes pmcPulse { 0% { box-shadow: 0 4px 12px rgba(250, 84, 28, .35); } 50% { box-shadow: 0 4px 22px rgba(250, 84, 28, .6); } 100% { box-shadow: 0 4px 12px rgba(250, 84, 28, .35); } }
+
+/* 阶段切换按钮 */
+.pmc-switch-btn { margin-left: auto; background: #52c41a; border: none; color: #fff; height: 38px; border-radius: 10px; padding: 0 18px; font-size: 14px; flex-shrink: 0; cursor: pointer; }
+
+/* ===== 阶段状态卡（对标效果图 .pmc-status / .psc-*） ===== */
+.pmc-status {
+  border-radius: 14px; padding: 14px 18px; margin-bottom: 10px;
+  border: 1px solid var(--border); background: var(--card); box-shadow: 0 1px 3px rgba(0, 0, 0, .04);
+}
+.pmc-status-done { background: #f6ffed; border-color: #b7eb8f; }
+.pmc-status-cur { background: #fffbe6; border-color: #ffe58f; }
+.pmc-status-todo { background: #f7f9ff; border-color: #d6e4ff; }
+.psc-main { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 17px; font-weight: 700; color: var(--text); }
+.psc-ph { color: var(--text); }
+.psc-kv { display: flex; align-items: baseline; gap: 10px; font-size: 14px; padding: 3px 0; }
+.psc-k { color: var(--text-3); min-width: 72px; flex: none; }
+.psc-v { color: var(--text-1); }
+
+/* ===== PMC 概览卡片网格（对标效果图 .mc-grid / .mc-card） ===== */
+.mc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 12px; }
+.mc-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.mc-card .mc-h { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.mc-card .mc-rpt { font-size: 13px; color: var(--text-2); }
+.mc-card .mc-st { font-size: 12px; color: var(--text-3); }
+.mc-card .mc-ops { display: flex; gap: 8px; }
+.mc-card .btn.sm { height: 32px; min-width: 60px; border-radius: 8px; background: var(--primary); color: #fff; border: none; font-size: 13px; padding: 0 12px; cursor: pointer; }
+.btn.sm { height: 32px; min-width: 60px; border-radius: 8px; background: var(--primary); color: #fff; border: none; font-size: 13px; padding: 0 12px; cursor: pointer; }
+.btn.sm.ghost { background: #fff; color: var(--text-2); border: 1px solid var(--border); }
+.svn-ok { display: inline-block; color: var(--success-deep); border: 1px solid var(--success); border-radius: 8px; padding: 1px 8px; font-size: 12px; margin-right: 4px; background: var(--success-bg); }
+.mc-flow { background: #f5f7fa; border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--text-2); margin-top: 10px; }
+.mc-flow-t { font-weight: 700; color: var(--text); margin-right: 8px; }
+
+/* ===== 阶段产出块 ===== */
+.out-name { font-weight: 600; text-align: left; }
+.out-desc { text-align: left; color: #7a8699; }
+.out-row.auto .out-desc { color: #5a6678; }
+.out-ops { white-space: nowrap; }
+.oe-hint { color: #9aa6b8; font-size: 12px; }
+.ctr { text-align: center; }
+
+/* 产出表内联面板 */
+.oe-panel { border: 1px solid #13c2c2; background: #f6fffe; border-radius: 10px; padding: 14px; margin: 8px 0; }
+
+/* ===== kv 键值对（测量状态等） ===== */
+.kv { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 8px 14px; background: #f7f8fa; border-radius: 10px; }
+.kv b { font-weight: 700; }
+
+/* 进度表面板 */
+.sched-panel { background: #fff; border: 1px solid #ffe0c2; border-radius: 14px; padding: 14px 18px; margin-top: 12px; }
+.sched-panel h3 { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--text); }
+.sched-panel h3 .bar { display: inline-block; width: 4px; height: 16px; background: #fa8c16; border-radius: 2px; margin-right: 6px; }

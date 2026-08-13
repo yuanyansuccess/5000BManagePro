@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GJB5000B 项目管理平台</title>
+  <link rel="stylesheet" href="css/common.css">
+</head>
+<body>
+
+  <!-- ============ 登录页（1:1 还原效果图） ============ -->
+  <div class="login" id="login">
+    <div class="lc">
+      <div class="brand">
+        <div class="topbar-i"><span class="led"></span>成飞电子 · 内网终端</div>
+        <div class="mid">
+          <div class="logo" id="loginlogo"></div>
+          <div class="t1">项目管理与<br>贯标文档平台</div>
+          <div class="t2">统一数据源 · 模板自动取数 · 录入即校核<br>覆盖 GJB5000B 全部过程域（PP/PMC/RDM/…/CM/PQA）</div>
+        </div>
+        <div class="foot">
+          <div class="dots"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="auth">
+        <h2>身份登录</h2>
+        <div class="sub">请输入用户名和密码登录系统</div>
+        <div class="field">
+          <label>用户名</label>
+          <div class="inp">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+            </svg>
+            <input id="username" value="" placeholder="请输入账号">
+          </div>
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <div class="inp">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+            <input id="password" value="" type="password" placeholder="请输入密码" onkeydown="if(event.key==='Enter')shellEnter()">
+          </div>
+        </div>
+        <div id="login-msg" style="display:none;font-size:14px;margin:8px 0;text-align:center;color:#e74c3c;"></div>
+        <button class="btn-p" onclick="shellEnter()">登 录 系 统</button>
+        <div class="copy">成都成飞电子科技有限公司 · 仅对纳入贯标项目人员开放 · ©2026</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 公共脚本：配置（logo）+ 通信 + 壳 -->
+  <script src="config/company.js?v=4"></script>
+  <script src="js/api.js?v=4"></script>
+  <script src="js/shell.js?v=4"></script>
+  <script>
+    // 1:1 还原效果图登录页 logo：图标(cfLogo) + 公司名文字（第8661行写法）
+    var _ll = document.getElementById('loginlogo');
+    if (_ll) {
+      _ll.innerHTML = '<div style="text-align:center">' + cfLogo(120) +
+        '<div style="font-size:19px;font-weight:700;letter-spacing:2px;margin-top:10px;">成飞电子 · GJB5000B</div></div>';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+/* 作者：袁燕
+   功能：告警日志页（alert）局部样式。
+   设计：列表/标签已放 common.css；本文件仅放 alert 特有微调。 */
+
+.alert-empty { padding: 20px; color: var(--text-3); text-align: center; }

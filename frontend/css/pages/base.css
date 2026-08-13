@@ -1,0 +1,12 @@
+/* 作者：袁燕
+   功能：基础数据页（base）局部样式。
+   设计：仅放本页特有的微调样式，公共部分一律复用 common.css。 */
+
+.base-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+
+/* 字典池多选行 */
+.dict-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 15px; }
+.dict-row .chk { width: 20px; height: 20px; }
+.dict-pool { display: flex; flex-wrap: wrap; gap: 8px; }
+.dict-chip { padding: 6px 12px; border-radius: 20px; background: var(--primary-soft); color: var(--primary); font-size: 13px; cursor: pointer; border: 1px solid transparent; }
+.dict-chip.sel { background: var(--primary); color: #fff; }
