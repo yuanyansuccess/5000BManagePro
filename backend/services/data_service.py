@@ -7,8 +7,8 @@
 设计原则：高内聚（业务组合内聚）、低耦合（只依赖 DAO 接口）。
 """
 from typing import Optional, Tuple
-from backend.dao import requirement_dao, risk_dao, alert_dao, stakeholder_dao, user_dao
-from backend.db.models import Requirement, Risk, AlertLog, Stakeholder, User
+from backend.dao import requirement_dao, risk_dao, alert_dao, stakeholder_dao, user_dao, project_dao
+from backend.db.models import Requirement, Risk, AlertLog, Stakeholder, User, Project
 
 
 class DataService:
@@ -27,19 +27,70 @@ class DataService:
         return requirement_dao.RequirementDao.delete(db, req_id)
 
     @staticmethod
-    def list_risks(db):
-        return risk_dao.RiskDao.get_all(db)
+    def list_risks(db, project_id: str = None):
+        return risk_dao.RiskDao.get_all(db, project_id=project_id)
 
     @staticmethod
     def create_risk(db, risk: Risk):
         return risk_dao.RiskDao.create(db, risk)
 
     @staticmethod
+    def update_risk(db, risk_id: str, fields: dict):
+        """按主键编辑风险，只更新传入字段（防全量覆盖误清）。"""
+        risk = db.query(Risk).filter(Risk.risk_id == risk_id).first()
+        if not risk:
+            return False
+        for k, v in fields.items():
+            if hasattr(risk, k):
+                setattr(risk, k, v)
+        db.commit()
+        return True
+
+    @staticmethod
     def delete_risk(db, risk_id: str):
         return risk_dao.RiskDao.delete(db, risk_id)
 
+    # ===== 项目配置（代号统一来源）=====
     @staticmethod
-    def list_stakeholders(db):
+    def get_current_project(db) -> Project:
+        return project_dao.ProjectDao.ensure_default(db)
+
+    @staticmethod
+    def list_projects(db):
+        return db.query(Project).order_by(Project.project_id).all()
+
+    @staticmethod
+    def create_project(db, proj: Project):
+        db.add(proj)
+        db.commit()
+        db.refresh(proj)
+        # 新建项目预置 R121 标准文档规模清单（11 类文档）
+        from backend.db._seed_doc_scale import seed_doc_scale
+        seed_doc_scale(db, proj.project_id)
+        return proj
+
+    @staticmethod
+    def set_current_project(db, project_id: str) -> Project:
+        return project_dao.ProjectDao.set_current(db, project_id)
+
+    @staticmethod
+    def update_project(db, project_id: str, payload: dict) -> Project:
+        p = db.query(Project).filter(Project.project_id == project_id).first()
+        if not p:
+            return None
+        for k, v in payload.items():
+            if v is not None and hasattr(p, k):
+                setattr(p, k, v)
+        db.commit()
+        db.refresh(p)
+        return p
+
+    @staticmethod
+    def list_stakeholders(db, project_id: str = None):
+        """相关方：不传 project_id 返回全部（兼容旧调用），传则返回该项目维度数据。"""
+        if project_id:
+            from backend.dao import stakeholder_dao as _sd
+            return _sd.StakeholderDao.list_by_project(db, project_id)
         return stakeholder_dao.StakeholderDao.get_all(db)
 
     @staticmethod
@@ -47,8 +98,39 @@ class DataService:
         return stakeholder_dao.StakeholderDao.create(db, st)
 
     @staticmethod
+    def list_stakeholder_plan(db, project_id: str):
+        """利益相关方参与计划（R121 附录B 矩阵），按项目维度。"""
+        from backend.dao import stakeholder_plan_dao as _spd
+        return _spd.StakeholderPlanDao.list_by_project(db, project_id)
+
+    @staticmethod
     def delete_stakeholder(db, role: str):
         return stakeholder_dao.StakeholderDao.delete(db, role)
+
+    # ===== 进度阶段（PP 进度计划表，按项目维度）=====
+    @staticmethod
+    def list_schedule_phases(db, project_id: str = None):
+        from backend.dao import schedule_dao
+        if project_id:
+            return schedule_dao.ScheduleDao.list_by_project(db, project_id)
+        from backend.db.models import SchedulePhase
+        return db.query(SchedulePhase).all()
+
+    # ===== 硬件/软件/文档规模资源（按项目维度，供 SDP 表格占位符聚合）=====
+    @staticmethod
+    def list_hw_res(db, project_id: str):
+        from backend.dao import hw_res_dao
+        return hw_res_dao.HwResDao.list_by_project(db, project_id)
+
+    @staticmethod
+    def list_sw_res(db, project_id: str):
+        from backend.dao import sw_res_dao
+        return sw_res_dao.SwResDao.list_by_project(db, project_id)
+
+    @staticmethod
+    def list_doc_scale(db, project_id: str):
+        from backend.dao import doc_scale_dao
+        return doc_scale_dao.DocScaleDao.list_by_project(db, project_id)
 
     @staticmethod
     def list_alerts(db, status=None, category=None):

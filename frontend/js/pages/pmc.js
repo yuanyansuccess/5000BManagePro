@@ -182,7 +182,7 @@ function pmcNodePage() {
   var stepBar = (PMC_CUR_TAB === 'ov') ? pmcStepBar() : '';
   return '<div class="page" id="page-pmc">'
     + '<div class="page-title">项目监控 PMC</div>'
-    + '<div class="page-sub"><span class="modal-tag">项目：R105（K409）飞管软件</span></div>'
+    + '<div class="page-sub"><span class="modal-tag">项目：' + Api.curProjectId() + ' ' + shellCurProjName() + '</span></div>'
     + stepBar
     + pmcTabBar()
     + '<div class="node-body" id="pmc-body">' + stageCard + content + '</div>'
@@ -386,7 +386,7 @@ function phCell(v) {
 
 function mcViewMaRpt() { alert('查看全部阶段测量分析报告（A32）\n' + PMC_MEASURE.map(function(m){ return m.item + ': ' + m.val + ' (' + (m.st === 'ok' ? '达标' : '关注') + ')'; }).join('\n')); }
 function mcViewCmRpt() { alert('查看配置管理报告（A83）\n配置项 96 项 · 基线 r1180 · 受控库状态正常'); }
-function goRiskManage() { alert('风险与机遇管理\n4 项风险全部已关闭（RK-01~04）\n关闭日期：2024-06-14 ~ 2024-07-05'); }
+function goRiskManage() { go('pp'); if (typeof ppTabContent === 'function') ppTabContent(2); }
 function goIssue(ph) { alert('问题跟踪（阶段 ' + ph + '）\n共录入 3 项问题，已关闭 2 项，1 项待关闭'); }
 function mcViewWeekRpt() { alert('周/双周报（A22）\n本周（9/11）任务完成，滞后 2 项'); }
 function mcViewStageRpt() { alert('阶段报告（A17）\n里程碑 M3 达成，交付物全部入库'); }

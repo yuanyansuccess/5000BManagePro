@@ -6,9 +6,9 @@ SVN 集成接口（API 层）
       不含 SQL（P18），逻辑走 Service。
 设计：钩子只负责抓取+POST，匹配逻辑在服务端；客户端轮询拿待更新指令。
 """
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Optional
 
 from backend.db.session import get_db
 from backend.schemas import (

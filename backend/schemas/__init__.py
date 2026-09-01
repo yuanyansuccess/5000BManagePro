@@ -46,23 +46,40 @@ class RequirementOut(_Base):
     baseline: Optional[str] = None
 
 
-# ===== 风险（PP/PMC）=====
+# ===== 风险（PP/PMC）— 字段对齐 R121 软件风险管理表（量化：可能性×影响=风险值）=====
 class RiskCreate(_Base):
     riskId: str
     description: str
-    level: Optional[str] = None
+    identifiedDate: Optional[str] = None    # 识别日期 2025/10/17
+    source: Optional[str] = None            # 风险来源：公司内部/外部/客户/供应商
+    category: Optional[str] = None          # 风险类别：人员/技术/需求/计划编制风险/测试/进度/质量
+    probability: Optional[str] = None       # 概率P 文本：很低/比较低/中等/比较高/很高
+    impactLevel: Optional[str] = None       # 影响I 文本：很低/比较低/中等/比较高/很高
+    level: Optional[str] = None             # 风险等级：低/中/高（自动或手填）
+    priority: Optional[str] = None          # 优先级：低/高（自动或手填）
+    prevention: Optional[str] = None        # 风险预防措施
     owner: Optional[str] = None
-    status: str = "打开"
-    mitigation: Optional[str] = None
+    status: str = "未发生"                  # 状态：未发生/已发生/已关闭
+    mitigation: Optional[str] = None        # 风险应对措施
+    closedDate: Optional[str] = None        # 关闭日期
 
 
 class RiskOut(_Base):
     riskId: str
     description: str
+    identifiedDate: Optional[str] = None
+    source: Optional[str] = None
+    category: Optional[str] = None
+    probability: Optional[str] = None
+    impactLevel: Optional[str] = None
+    riskCoef: Optional[str] = None          # 风险系数 = 概率数值×影响数值（自动）
     level: Optional[str] = None
+    priority: Optional[str] = None
+    prevention: Optional[str] = None
     owner: Optional[str] = None
     status: str
     mitigation: Optional[str] = None
+    closedDate: Optional[str] = None
 
 
 # ===== 通用响应 =====
@@ -70,16 +87,6 @@ class ApiResp(BaseModel):
     status: str = "ok"
     message: Optional[str] = None
     data: Optional[object] = None
-
-
-# ===== 风险（PP/PMC）— 输出 =====
-class RiskOut(_Base):
-    riskId: str
-    description: str
-    level: Optional[str] = None
-    owner: Optional[str] = None
-    status: str
-    mitigation: Optional[str] = None
 
 
 # ===== 相关方（PP A14）=====

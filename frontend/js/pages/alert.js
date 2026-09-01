@@ -28,7 +28,7 @@ var ALERT_FILTER = { kind: '全部', lv: '全部', st: '全部' };
 function alertRender() {
   const c = document.getElementById('content');
   c.innerHTML = '<div class="page"><div class="page-title">告警日志</div>' +
-    '<div class="page-sub">文档生成与取数异常集中暴露 · 模板问题 / 取数问题 / 一致性问题 / 过程符合性　| <span class="modal-tag">项目维度：R105 飞管软件</span></div>' +
+    '<div class="page-sub">文档生成与取数异常集中暴露 · 模板问题 / 取数问题 / 一致性问题 / 过程符合性　| <span class="modal-tag">项目维度：' + Api.curProjectId() + ' ' + shellCurProjName() + '</span></div>' +
     '<div id="alertStats"></div>' +
     '<div class="panel" style="border:1px dashed #b7d3ff;background:#f7fbff;margin-bottom:16px;"><h3><span class="bar"></span>告警分类说明</h3><div class="legend">' +
     '<div class="lg"><span class="tag warn">📄 模板问题</span><span class="lg-t">模板缺章节、版次过期、占位符未替换，导致生成文档结构不符。</span></div>' +

@@ -8,7 +8,7 @@ FastAPI 主入口
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.session import init_db
-from backend.api import requirements, risks, stakeholders, alerts, users, svn
+from backend.api import requirements, risks, stakeholders, alerts, users, svn, doc, settings, projects, resources
 
 app = FastAPI(title="GJB5000B 管理平台后端", version="0.1.0")
 
@@ -27,6 +27,10 @@ app.include_router(stakeholders.router)
 app.include_router(alerts.router)
 app.include_router(users.router)
 app.include_router(svn.router)
+app.include_router(doc.router)
+app.include_router(settings.router)
+app.include_router(projects.router)
+app.include_router(resources.router)
 
 
 @app.on_event("startup")

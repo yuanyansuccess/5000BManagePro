@@ -6,7 +6,7 @@ DAO 基类（通用 CRUD 内聚，SQLAlchemy 版）
       SQL 全部内聚在此层，Service/API 不感知（继承智能柜 P18 分层铁律）。
 设计原则：高内聚（SQL 只在此层）、低耦合（子类零 SQL 即得 CRUD）。
 """
-from typing import Type, List, Optional, Any
+from typing import List, Optional, Any
 from sqlalchemy.orm import Session
 
 
@@ -38,6 +38,17 @@ class BaseDao:
         db.commit()
         db.refresh(obj)
         return obj
+
+    @classmethod
+    def update_fields(cls, db: Session, pk_value: Any, fields: dict) -> bool:
+        """按主键更新指定字段（高内聚：避免路由层拼 ORM 对象）。"""
+        obj = cls.get_by_pk(db, pk_value)
+        if not obj:
+            return False
+        for k, v in fields.items():
+            setattr(obj, k, v)
+        db.commit()
+        return True
 
     @classmethod
     def delete(cls, db: Session, pk_value: Any) -> bool:

@@ -22,6 +22,9 @@ temp/
 *.tmp
 *.bak
 
+# ===== 验证实验区（lab/ 仅本地验证，不入库）=====
+lab/
+
 # ===== IDE 工程文件（本机专属，跨机易冲突）=====
 .idea/
 .vscode/
@@ -40,6 +43,13 @@ desktop.ini
 .env
 secrets.json
 *.pem
+
+# ===== 数据库备份（含真实数据，禁入库）=====
+backup/
+
+# ===== 启动输出日志（运行产物）=====
+_start_out.txt
+# 注：templates/ 下 .docx 为项目模板资产，照常提交（不忽略 *.docx）
 
 # ===== 构建产物 =====
 build/

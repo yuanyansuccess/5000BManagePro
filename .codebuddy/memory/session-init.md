@@ -7,11 +7,13 @@
 每次启动本项目，按此清单恢复上下文：
 
 1. 读 `project-context.md` — 技术栈/路径/DB 结构
-2. 读 `work-rules.md` — 编码铁律/测试要求/触屏标准
-3. 读 `qc-lessons.md` — 本项目踩坑记录（必看，避免重蹈）
-4. 读 `session-log.md` — 最近动态（倒序看最新）
+2. 读 `work-rules.md` — 编码铁律/测试要求/触屏标准（**含"修改前三轮分析+举一反三强制 SOP"**）
+3. 读 `coding-iron-rules.md` — **智能柜最佳实践（跨项目通用铁律，已搬入本项目）：三轮分析、举一反三、命名/分层/脏数据/Git 规范**。袁总 2026-08-27 要求：这是项目级记忆系统的核心组成部分，必须应用
+4. 读 `gjb5000b-methodology.md` — GJB5000B 体系方法论/效率模式/平台设计原则（智能柜最佳实践沉淀）
+5. 读 `qc-lessons.md` — 本项目踩坑记录（必看，避免重蹈）
+6. 读 `session-log.md` — 最近动态（倒序看最新）
 
-## 当前进度（2026-08-13 更新）
+## 当前进度（2026-08-27 更新）
 - 项目从空文件夹重启，采用方案 new.docx 框架
 - 后端骨架已搭（FastAPI+SQLAlchemy+MySQL），前后端通信已通
 - 前端已完成「1:1 复刻效果图 + 解耦分页面 + 样式拆分」：
@@ -21,7 +23,8 @@
 - IDE 工程文件已生成：.idea（PyCharm 后端，Python 3.9 SDK=D:\Anaconda3）+ .vscode（前端 Live Server 8080）
 - SVN 集成已通（08-11/08-12）：post-commit 钩子 scripts/svn_post_commit_push.py → /api/svn/commit；SvnCommitLog/ClientWatch 两表；客户端轮询更新+回报闭环；start.bat 一键启动前后端
 - 记忆系统已建全：session-init / project-context / work-rules / qc-lessons / session-log / user-profile
-- 下一步：逐步把 placeholder 过程域页（PP/PMC/RDM...）填充为真实数据页
+- **下载功能已全修（08-27）**：PP 页"下载到本地指定路径"弹窗——按钮卡死修复、后端写盘 makedirs+安全校验、前端 no-cache+版本戳破缓存、30 秒超时兜底防永卡；start.bat 修 bat 标签(`:label`)+加 UTF-8 BOM+清理 uvicorn 孤儿 spawn worker。详见 qc-lessons 坑24~30、session-log 08-27 段。
+- 下一步：逐步把 placeholder 过程域页（PP/PMC/RDM...）填充为真实数据页；修复后务必写记忆(坑30)。
 
 ## 铁律（袁总确认，跨会话生效）
 - 数据库用 MySQL（gjb5000b，root/root@127.0.0.1:3306）

@@ -21,7 +21,7 @@
     </div>
     <div class="layout">
       <div class="sidebar"><div class="menu" id="menu"></div>
-        <div class="foot"><span class="av">辛</span><div><div>辛峥峰 · 软件负责人</div><div style="color:#5a5a78;">R105（K409）飞管软件</div></div></div>
+        <div class="foot"><span class="av">辛</span><div><div>辛峥峰 · 软件负责人</div><div style="color:#5a5a78;" id="sidebar-proj">飞管软件</div></div></div>
       </div>
       <div class="content" id="content"></div>
     </div>
@@ -31,10 +31,15 @@
   <script src="../js/api.js?v=4"></script>
   <script src="../config/company.js?v=4"></script>
   <script src="../js/shell.js?v=4"></script>
-  <script src="../js/pages/pp.js"></script>
+  <script src="../js/pages/pp.js?v=6&t=20260827"></script>
   <script>
-    shellRender();
-    ppRender();
+    Api.loadCurrentProject().then(function () {
+      shellRender();
+      ppRender();
+    }).catch(function () {
+      shellRender();
+      ppRender();
+    });
   </script>
 </body>
 </html>

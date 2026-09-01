@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>系统设置 · GJB5000B</title>
+  <link rel="stylesheet" href="../css/common.css">
+</head>
+<body data-page="settings">
+  <div id="app" style="height:100%;display:flex;flex-direction:column;">
+    <div class="topbar">
+      <div class="topbrand" id="topbrand">GJB5000B 平台</div>
+      <div class="crumb" id="crumb">系统设置</div>
+      <div class="projbar" id="projbar"></div>
+      <div class="spacer"></div>
+      <div class="me" id="me"></div>
+    </div>
+    <div class="layout">
+      <div class="sidebar"><div class="menu" id="menu"></div>
+        <div class="foot"><span class="av">袁</span><div><div>袁燕 · 管理员</div><div style="color:#5a5a78;">系统配置</div></div></div>
+      </div>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+
+  <div class="mask" id="mask" style="display:none"></div>
+  <script src="../js/api.js?v=5"></script>
+  <script src="../config/company.js?v=5"></script>
+  <script src="../js/shell.js?v=5"></script>
+  <script src="../js/pages/settings.js"></script>
+  <script>
+    shellRender();
+    settingsRender();
+  </script>
+</body>
+</html>

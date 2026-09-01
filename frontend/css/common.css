@@ -345,6 +345,13 @@ select {
 .tbl th, .tbl td { border: 1px solid var(--border); padding: 10px 12px; text-align: center; }
 .tbl th { background: #f5f7fa; font-weight: 700; color: #3a3a3a; }
 .tbl tr:nth-child(even) td { background: #fafbfc; }
+/* 利益相关方参与计划矩阵打勾（触屏友好，袁总 R121 附录B） */
+.tbl td .chk { width: 36px; height: 36px; min-width: 36px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--primary); font-size: 18px; font-weight: 700; cursor: pointer; line-height: 1; font-family: inherit; }
+.tbl td .chk.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* 注：原「○ 半选态（橙色）」样式已删除（袁总要求：仅 √=计划参与 / 空=不参与，不再有圆圈标记） */
+/* 只读态：淡色不可点（点「修改」进入编辑态后恢复） */
+.tbl td .chk.ro { background: #f3f4f8; color: #c9cdd8; border-color: #e4e7f0; cursor: not-allowed; }
+.tbl td .chk.ro.on { background: #aab6d4; color: #fff; border-color: #aab6d4; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { padding: 6px 12px; border-radius: 20px; background: var(--primary-soft); color: var(--primary); font-size: 13px; }
 .chip.on { background: var(--primary); color: #fff; }
@@ -367,6 +374,12 @@ select {
 .modal-hd .mx { margin-left: auto; font-size: 22px; cursor: pointer; color: var(--text-3); line-height: 1; }
 .modal-bd { padding: 16px 20px; }
 .modal-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border); }
+/* 宽版弹窗 + 两列字段网格（修改项目等长表单用，一行放两条信息） */
+.modal.modal-lg { width: 880px; max-width: 96vw; }
+.modal-bd.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
+.modal-bd.grid2 .field { margin-bottom: 12px; }
+.modal-bd.grid2 .span2 { grid-column: 1 / -1; }
+.modal-bd.grid2 input[type="date"] { min-height: 42px; }
 .forms { display: flex; flex-direction: column; gap: 8px; }
 .frow { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #f7f8fa; border-radius: 10px; font-size: 14px; }
 

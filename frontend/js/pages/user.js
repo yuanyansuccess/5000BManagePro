@@ -42,19 +42,15 @@ async function userLoad() {
 /** 渲染整个用户管理页面 */
 async function userRender() {
   await userLoad();
+  await memberLoad();
   const c = document.getElementById('content');
-  var h = '<div class="page"><div class="page-title">用户管理</div><div class="page-sub">项目人员（R105 名册）· 系统用户（' + SYS_USERS.length + ' 人，后端实时数据）</div>';
-  // 模块1 项目人员卡片
-  h += '<div class="panel"><h3><span class="bar"></span>项目人员（' + PEOPLE.length + '）</h3><div class="base-grid">';
-  PEOPLE.forEach(function (p) {
-    h += '<div class="mc-card"><div class="mc-h"><span class="av" style="background:' + teamColor(p.team) + '">' + p.name.charAt(0) + '</span>' +
-      '<div><div style="font-weight:700;">' + p.name + '</div><div style="font-size:12px;color:var(--text-3)">' + p.no + '</div></div>' +
-      '<span class="tag" style="margin-left:auto;background:' + teamColor(p.team) + '22;color:' + teamColor(p.team) + '">' + p.team + '</span></div>' +
-      '<div class="mc-rpt">角色：' + p.role + '</div>' +
-      '<div class="mc-rpt">SVN：' + p.svn + '</div>' +
-      '<div class="mc-rpt">权限：' + p.auth + '</div></div>';
-  });
-  h += '</div></div>';
+  var h = '<div class="page"><div class="page-title">用户管理</div><div class="page-sub">项目人员（' + MEMBERS.length + ' 人，当前项目 ' + Api.curProjectId() + ' ' + shellCurProjName() + '，文档签署角色基础）· 系统用户（' + SYS_USERS.length + ' 人）</div>';
+  // 模块1 项目人员表格（按项目维度，可增改删，是文档生成的角色基础）
+  h += '<div class="panel"><h3><span class="bar"></span>项目人员（' + MEMBERS.length + '）' +
+    '<button class="btn-sm ok" style="float:right;margin-top:-4px" onclick="memberAddDialog()">+ 新增人员</button></h3>' +
+    '<div style="overflow-x:auto;"><table class="tbl"><thead><tr>' +
+    '<th>姓名</th><th>角色</th><th>所属组</th><th>编号</th><th>SVN 路径</th><th>权限/职责</th><th style="width:150px">操作</th></tr></thead>' +
+    '<tbody id="member-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-3);">加载中…</td></tr></tbody></table></div></div>';
   // 模块2 系统用户表格
   h += '<div class="panel"><h3><span class="bar"></span>系统用户（' + SYS_USERS.length + '）' +
     '<button class="btn-sm ok" style="float:right;margin-top:-4px" onclick="userAddDialog()">+ 新增用户</button></h3>' +
@@ -77,6 +73,90 @@ async function userRender() {
   }
   h += '</tbody></table></div></div></div>';
   c.innerHTML = h;
+  memberRenderRows();
+}
+
+// ==================== 项目人员（按项目维度，文档签署角色基础）====================
+
+var MEMBERS = [];
+
+/** 加载当前项目人员（GET /api/pp/{pid}/members） */
+async function memberLoad() {
+  try {
+    var resp = await Api.listMembers(Api.curProjectId());
+    MEMBERS = (resp && resp.data) ? resp.data : (Array.isArray(resp) ? resp : []);
+  } catch (e) {
+    console.error('加载项目人员失败：', e);
+    MEMBERS = [];
+  }
+}
+
+/** 渲染项目人员表体（行内编辑 + 保存/删除） */
+function memberRenderRows() {
+  var tb = document.getElementById('member-tbody');
+  if (!tb) return;
+  if (!MEMBERS.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:24px">暂无项目人员，点「+ 新增人员」添加</td></tr>';
+    return;
+  }
+  tb.innerHTML = MEMBERS.map(function (m) {
+    function inp(f, w, v) { return '<td><input data-f="' + f + '" data-id="' + m.id + '" value="' + (v == null ? '' : v) + '" style="width:' + w + '"></td>'; }
+    return '<tr>' + inp('name', '80px', m.name) + inp('role', '100px', m.role) +
+      '<td><input data-f="team" data-id="' + m.id + '" value="' + (m.team || '') + '" style="width:70px;background:' + teamColor(m.team || '') + '14;color:' + teamColor(m.team || '') + '"></td>' +
+      inp('no', '70px', m.no) + inp('svn', '200px', m.svn) + inp('auth', '110px', m.auth) +
+      '<td><button class="btn-sm ok" onclick="memberSave(' + m.id + ')">保存</button>' +
+      '<button class="btn-sm danger" onclick="memberDel(' + m.id + ')">删除</button></td></tr>';
+  }).join('');
+}
+
+/** 数据到位后渲染表体（userRender 内已 await memberLoad） */
+function memberAfterRender() { memberRenderRows(); }
+
+async function memberSave(id) {
+  var get = function (f) { var el = document.querySelector('#member-tbody [data-id="' + id + '"][data-f="' + f + '"]'); return el ? el.value.trim() : ''; };
+  try {
+    await Api.updateMember(Api.curProjectId(), id, {
+      name: get('name'), role: get('role'), team: get('team'),
+      no: get('no'), svn: get('svn'), auth: get('auth'),
+    });
+    toast('已保存');
+    await userRender();
+  } catch (e) { toast('保存失败：' + e.message); }
+}
+
+async function memberDel(id) {
+  if (!confirm('确认删除该项目人员？')) return;
+  try {
+    await Api.deleteMember(Api.curProjectId(), id);
+    toast('已删除');
+    await userRender();
+  } catch (e) { toast('删除失败：' + e.message); }
+}
+
+function memberAddDialog() {
+  var html = '<div class="modal-mask" onclick="if(event.target===this)this.remove()"><div class="modal"><div class="modal-hd">新增项目人员（' + Api.curProjectId() + '）</div><div class="modal-bd">' +
+    '<div class="field"><label>姓名 *</label><input id="mb-name"></div><div class="field"><label>角色</label><input id="mb-role" placeholder="如 软件负责人/测试/QA"></div>' +
+    '<div class="field"><label>所属组</label><input id="mb-team" placeholder="软件/测试/设计/配置/质保/管理"></div><div class="field"><label>编号</label><input id="mb-no"></div>' +
+    '<div class="field"><label>SVN 路径</label><input id="mb-svn" placeholder="svn://pdm/R105/姓名"></div><div class="field"><label>权限/职责</label><input id="mb-auth"></div>' +
+    '<div id="mb-msg" style="color:#e74c3c;font-size:13px;min-height:16px;"></div></div>' +
+    '<div class="modal-ft"><button class="btn ghost" onclick="this.closest(\'.modal-mask\').remove()">取消</button>' +
+    '<button class="btn primary" onclick="memberSaveNew()">保存</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function memberSaveNew() {
+  var msg = document.getElementById('mb-msg');
+  var g = function (id) { return document.getElementById(id).value.trim(); };
+  if (!g('mb-name')) { msg.textContent = '姓名必填'; return; }
+  try {
+    await Api.createMember(Api.curProjectId(), {
+      name: g('mb-name'), role: g('mb-role'), team: g('mb-team'),
+      no: g('mb-no'), svn: g('mb-svn'), auth: g('mb-auth'), seq: MEMBERS.length + 1,
+    });
+    document.querySelector('.modal-mask').remove();
+    toast('已新增项目人员');
+    await userRender();
+  } catch (e) { msg.textContent = '保存失败：' + e.message; }
 }
 
 // ==================== 用户操作 ====================
@@ -117,20 +197,7 @@ function findUser(userId) {
   return null;
 }
 
-/** toast 提示 */
-function toast(msg) {
-  var el = document.getElementById('toast');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'toast';
-    el.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 24px;border-radius:8px;z-index:9999;font-size:16px;pointer-events:none;opacity:0;transition:opacity .3s';
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.style.opacity = '1';
-  clearTimeout(el._tid);
-  el._tid = setTimeout(function () { el.style.opacity = '0'; }, 2500);
-}
+// toast 已提升为全局函数（见 shell.js），此处不再重复定义
 
 // ==================== 新增/编辑弹窗 ====================
 
