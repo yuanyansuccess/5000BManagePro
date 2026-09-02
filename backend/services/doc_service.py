@@ -48,6 +48,8 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
     phase = (proj.phase if proj else '') or ''
     start_date = (proj.start_date if proj else '') or ''
     approve_date = (proj.approve_date if proj else '') or ''
+    # 袁总 2026-09-02：签字页日期统一 8 位紧凑格式(20250315)，去掉横杠/斜杠
+    approve_date = str(approve_date).replace('-', '').replace('/', '')
     ide_version = (proj.ide_version if proj else '') or ''
     sw_version = (proj.sw_version if proj else '') or ''
     doc_no = (proj.doc_number if proj else '') or f'{pid}_SDP_V1.00'
@@ -299,7 +301,8 @@ def generate_doc_bytes(project_id: str, template_name: str,
         # 平台数据只读保护（袁总 2026-09-02）：用 Content Control(sdt) 包裹 10 张
         # 平台表，内容锁定(sdtContentLocked)，其余正文/手写表默认可编辑。
         # 不依赖整文档 documentProtection，规避此前 perm 注入 body 级导致 Word 空白。
-        _apply_sdt_readonly(tmp_path)
+        _apply_sdt_readonly(tmp_path, project_id,
+                            ph_map.get("{{meta.doc_version}}", "V1.00"))
         with open(tmp_path, "rb") as f:
             data = f.read()
     finally:
@@ -489,8 +492,34 @@ def validate_project_for_sdp(db: Session, project_id: str):
             + "、".join(missing))
 
 
+def _ensure_tbl_center(seg):
+    """对标 R121：确保平台表 tblPr 含 jc=center（表格居中）。
+    注意 CT_TblPr 子元素有 schema 顺序，w:jc 必须排在 w:tblW 之后，否则 Word 可能忽略。"""
+    m = re.search(r'<w:tbl(?: [^>]*)?>', seg)
+    if not m:
+        return seg
+    after = m.end()
+    tp = seg.find('<w:tblPr', after)
+    if tp == -1 or tp > after + 300:
+        return seg[:after] + '<w:tblPr><w:jc w:val="center"/></w:tblPr>' + seg[after:]
+    tpend = seg.find('>', tp)
+    if seg[tpend - 1] == '/':                      # 自闭合 <w:tblPr/>
+        return seg[:tp] + '<w:tblPr><w:jc w:val="center"/></w:tblPr>' + seg[tpend + 1:]
+    if 'w:jc' in seg[tp:tpend]:
+        return seg                                  # 已有对齐设置，不覆盖
+    tw = seg.find('<w:tblW', tp)
+    if tw != -1 and tw < tpend:                     # jc 必须排在 tblW 之后
+        twend = seg.find('/>', tw)
+        if twend != -1:
+            return seg[:twend + 2] + '<w:jc w:val="center"/>' + seg[twend + 2:]
+        twend = seg.find('>', tw)
+        return seg[:twend + 1] + '<w:jc w:val="center"/>' + seg[twend + 1:]
+    return seg[:tpend + 1] + '<w:jc w:val="center"/>' + seg[tpend + 1:]
+
+
 def _wrap_readonly_tables_with_sdt(doc):
-    """用 w:sdt 包裹 READONLY_TABLE_KEYS 命中的平台表（内容锁定，其余可编辑）。"""
+    """用 w:sdt 包裹 READONLY_TABLE_KEYS 命中的平台表（内容锁定，其余可编辑）。
+    同时调用 _ensure_tbl_center 让平台表居中（对标 R121）。"""
     spans = []
     for keys in READONLY_TABLE_KEYS:
         p2 = 0
@@ -504,7 +533,7 @@ def _wrap_readonly_tables_with_sdt(doc):
     spans.sort(reverse=True)  # 从后往前插，避免索引偏移
     sid = 1
     for a, b in spans:
-        seg = doc[a:b]
+        seg = _ensure_tbl_center(doc[a:b])
         repl = ('<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
                 '<w:sdtContent>' % sid) + seg + '</w:sdtContent></w:sdt>'
         sid += 1
@@ -512,8 +541,37 @@ def _wrap_readonly_tables_with_sdt(doc):
     return doc
 
 
-def _apply_sdt_readonly(docx_path):
-    """对 docx 内 10 张平台表加 sdt 内容锁定（其余不受影响）。失败则回退原文件，保证文档不损坏。"""
+# 袁总 2026-09-02：需删除电子签名图片的人员（模板继承的历史签名，非本项目人员）
+REMOVE_SIGNATURE_USERS = ("马慧芳",)
+
+
+def _remove_signature_images(doc):
+    """删除电子签名图片：descr 含 'USERNAME=<姓名>' 的整个 <w:drawing> 块。"""
+    pat = re.compile(r"<w:drawing>.*?</w:drawing>", re.S)
+
+    def _sub(m):
+        seg = m.group(0)
+        for u in REMOVE_SIGNATURE_USERS:
+            if "USERNAME=" + u in seg:
+                return ""
+        return seg
+
+    return pat.sub(_sub, doc)
+
+
+def _fix_sdtd_version(doc, project_id, doc_version):
+    """模板静态残留的引用文件编号缺版本号（如 R105_SDTD_）→ 补成 R105_SDTD_V1.00。"""
+    if not project_id:
+        return doc
+    ver = (doc_version or "V1.00").strip()
+    pat = re.compile(re.escape(project_id) + r"_SDTD_(?![0-9A-Za-z])")
+    return pat.sub(project_id + "_SDTD_" + ver, doc)
+
+
+def _apply_sdt_readonly(docx_path, project_id=None, doc_version="V1.00"):
+    """对 docx 内平台表加 sdt 内容锁定 + 黄底纹 + 居中（其余不受影响）。
+    同时删除指定人员的电子签名图片、补齐 SDTD 版本号。
+    任何异常都回退原文件，保证文档不损坏。"""
     import zipfile as _zf
     import shutil as _sh
     bak = docx_path + ".sdt.bak"
@@ -524,7 +582,12 @@ def _apply_sdt_readonly(docx_path):
         data = {n: z.read(n) for n in names}
         z.close()
         doc = data["word/document.xml"].decode("utf-8")
+        doc = _remove_signature_images(doc)
+        doc = _fix_sdtd_version(doc, project_id, doc_version)
         doc = _wrap_readonly_tables_with_sdt(doc)
+        # 恢复只读区黄色底纹(FFF2CC)：上一轮换 sdt 方案时漏掉了 _shade_readonly_tables，
+        # 导致"保护还在、颜色没了"。底纹与只读是两件事，必须同时做（袁总 2026-09-02 指出）。
+        doc = _shade_readonly_tables(doc)
         data["word/document.xml"] = doc.encode("utf-8")
         with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
             for n in names:

@@ -10,8 +10,10 @@ __pycache__/
 # ===== 虚拟环境 =====
 venv/
 .venv/
-env/
-Env/
+# 注：env/ 与 Env/ 必须写成【根级限定】/env/ —— 因为 Windows 大小写不敏感，
+#     裸写 env/ 或 Env/ 会连带忽略 build/env/（环境搭建脚本目录，袁总要求入库）
+/env/
+/Env/
 
 # ===== 日志（运行产物）=====
 logs/
@@ -53,6 +55,12 @@ _start_err.txt
 # 注：templates/ 下 .docx 为项目模板资产，照常提交（不忽略 *.docx）
 
 # ===== 构建产物 =====
-build/
+# 注：build/ 自 2026-09-02 起改作【环境搭建专区】（保姆级手册 + 一键脚本，袁总要求入库），
+#     故不再整体忽略 build/，仅忽略其中的临时/输出子目录
+build/temp/
+build/output/
+# 安装包/离线依赖包体积大（MySQL 约300MB），不入库；用 build/tools/download_*.bat 随时下载
+build/tools/installers/
+build/tools/offline_wheels/
 dist/
 *.egg-info/

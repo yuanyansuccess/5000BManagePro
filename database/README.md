@@ -5,7 +5,7 @@
 - `gjb5000b.sql`：由 `mysqldump` 导出的**完整库**（表结构 + 全量业务数据），字符集 utf8mb4。
 
 ## 导入方式（本地开发）
-```bash
+```bash[build_manual.py](../build/tools/build_manual.py)
 # 1) 建库（若不存在）
 mysql --user=root --password=root --host=127.0.0.1 --port=3306 --default-character-set=utf8mb4 -e "CREATE DATABASE IF NOT EXISTS gjb5000b"
 
