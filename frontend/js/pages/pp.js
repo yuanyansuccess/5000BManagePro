@@ -11,7 +11,7 @@ var PP_TABS = [
   { key: 'est', label: '软件估算与收敛', fn: 'ppEstPanel' },
   { key: 'risk', label: '风险与资源', fn: 'ppRiskTab' },
   { key: 'docscale', label: '文档规模估算', fn: 'ppDocScale' },
-  // 进度表（sched）已按袁总要求隐藏（数据源仍在库，需要时把本行放开即可恢复）
+  // 进度表（sched）已按项目方要求隐藏（数据源仍在库，需要时把本行放开即可恢复）
   { key: 'stake', label: '利益相关方', fn: 'ppStakeTab' }
 ];
 
@@ -21,7 +21,7 @@ var PP_STAKE_LABELS = ["顾客代表", "项目经理", "部门领导", "项目�
 
 var PP_CUR_TAB = 'gen';
 
-// 注：Delphi 估算收敛表（est_items）已按袁总要求从页面删除；数据与后端接口保留。
+// 注：Delphi 估算收敛表（est_items）已按项目方要求从页面删除；数据与后端接口保留。
 
 
 function ppRender() {
@@ -67,7 +67,7 @@ function ppNodePage() {
 
 // 节点级操作栏（1:1 还原 ppNodeActions）
 function ppNodeActions() {
-  // 袁总要求：删除"按模块同步"3 按钮（46bce8d394 截图去整块），只保留"一键提交"主按钮
+  // 项目方要求：删除"按模块同步"3 按钮（46bce8d394 截图去整块），只保留"一键提交"主按钮
   return '<div class="node-actions"><div class="na-row">' +
     '<button class="btn primary" onclick="ppSyncAll()">⬆ 一键提交所有策划数据到 SVN</button>' +
     '</div></div>';
@@ -96,7 +96,7 @@ function ppTabContent() {
 
 // 生成软件开发计划（4 个汇总面板 + 一键生成）
 function ppGenPlan() {
-  // 统计卡片：数据全部异步取自数据库接口（袁总铁律：显示数据一律从库读）
+  // 统计卡片：数据全部异步取自数据库接口（项目方铁律：显示数据一律从库读）
   let h = '<div class="stats">' +
     '<div class="stat"><div class="v" id="gc-est">加载中…</div><div class="k">工作量估算（人日 / 阶段数）</div><div class="sub"><span class="tag ok">已入库</span></div></div>' +
     '<div class="stat"><div class="v" id="gc-risk">加载中…</div><div class="k">风险资源（硬件 / 软件项）</div><div class="sub"><span class="tag ok">已入库</span></div></div>' +
@@ -298,7 +298,7 @@ function ppGenMsg(text, ok) {
 
 // 代码规模（构件级，按项目维度；对应 {{table.code_scale_est}}/{{table.code_scale_reuse}}）
 function ppEstPanel() {
-  // 袁总要求：删除「软件估算与收敛（Delphi 法）」表格（含两轮切换 + est_items 表），
+  // 项目方要求：删除「软件估算与收敛（Delphi 法）」表格（含两轮切换 + est_items 表），
   //           仅保留下方「代码规模（构件级）」表（对应 {{table.code_scale_*}}）。
   var h = '<div class="panel"><div class="panel-hd"><h3><span class="bar"></span>代码规模（构件级，新开发/复用）</h3>' +
     '<button class="btn primary sm" onclick="ppCodeScaleAdd()">＋ 新增构件</button></div>' +
@@ -308,7 +308,7 @@ function ppEstPanel() {
   return h;
 }
 
-// 注：Delphi 估算收敛表（ppEstLoad/ppEstSave/ppEstDel/ppEstSwitchRound）已按袁总要求删除；
+// 注：Delphi 估算收敛表（ppEstLoad/ppEstSave/ppEstDel/ppEstSwitchRound）已按项目方要求删除；
 //     est_items 数据与后端接口保留（如需恢复，还原上述四个函数 + ppEstPanel 中的表格区块即可）。
 function ppCodeScaleLoad() {
   var tb = document.getElementById('codescale-tbody');
@@ -706,8 +706,8 @@ function ppDocScaleDel(id) {
 // 利益相关方（按项目维度，对应 {{table.stakeholders}}/{{table.stakeholder_plan}}）
 function ppStakeTab() {
   // R121/R105 附录B：利益相关方参与计划（阶段×活动×角色打勾矩阵）
-  // 交互（袁总指示）：默认只读；点「修改」进入编辑态才能点框；点「保存」批量提交并提示；不用弹窗
-  // 袁总确认：仅 9 个角色（对标 R121 附录B），顺序与数据库列一致
+  // 交互（项目方指示）：默认只读；点「修改」进入编辑态才能点框；点「保存」批量提交并提示；不用弹窗
+  // 项目方确认：仅 9 个角色（对标 R121 附录B），顺序与数据库列一致
   var roles = PP_STAKE_ROLES;
   var roleLabels = PP_STAKE_LABELS;
   var head = '<th style="width:44px">序号</th><th style="width:90px">阶段</th><th>活动描述</th>' +
@@ -733,13 +733,13 @@ function ppStakeLoad() {
   Api.listStakeholderPlan(Api.curProjectId()).then(function (r) {
     var rows = (r && r.data) || [];
     if (!rows.length) { tb.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#999;">暂无数据</td></tr>'; return; }
-    // 袁总确认：仅 9 个角色（对标 R121 附录B）
+    // 项目方确认：仅 9 个角色（对标 R121 附录B）
     var roles = PP_STAKE_ROLES;
   var roleLabels = PP_STAKE_LABELS;
     tb.innerHTML = rows.map(function (x) {
       var cells = roles.map(function (f) {
         var mk = (x[f] || '').trim();
-        // 袁总要求：只保留 √（计划参与），不再有 ○；(PP_STAKE_EDITING ? '' : ' ro')
+        // 项目方要求：只保留 √（计划参与），不再有 ○；(PP_STAKE_EDITING ? '' : ' ro')
         var cls = 'chk' + (mk === '√' ? ' on' : '') + (PP_STAKE_EDITING ? '' : ' ro');
         return '<td style="text-align:center;"><button class="' + cls + '" data-id="' + x.id + '" data-f="' + f + '" onclick="ppStakeToggle(this)">' + mk + '</button></td>';
       }).join('');
@@ -783,7 +783,7 @@ function ppStakeToggle(btn) {
   var f = btn.getAttribute('data-f');
   var on = btn.classList.contains('on');
   if (!PP_STAKE_PENDING[id]) PP_STAKE_PENDING[id] = {};
-  // 两态切换：空 ⇄ √(计划参与)（袁总要求取消 ○）
+  // 两态切换：空 ⇄ √(计划参与)（项目方要求取消 ○）
   var next = btn.classList.contains('on') ? '' : '√';
   PP_STAKE_PENDING[id][f] = next;
   btn.classList.toggle('on', next === '√');

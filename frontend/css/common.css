@@ -345,10 +345,10 @@ select {
 .tbl th, .tbl td { border: 1px solid var(--border); padding: 10px 12px; text-align: center; }
 .tbl th { background: #f5f7fa; font-weight: 700; color: #3a3a3a; }
 .tbl tr:nth-child(even) td { background: #fafbfc; }
-/* 利益相关方参与计划矩阵打勾（触屏友好，袁总 R121 附录B） */
+/* 利益相关方参与计划矩阵打勾（触屏友好，项目方 R121 附录B） */
 .tbl td .chk { width: 36px; height: 36px; min-width: 36px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--primary); font-size: 18px; font-weight: 700; cursor: pointer; line-height: 1; font-family: inherit; }
 .tbl td .chk.on { background: var(--primary); color: #fff; border-color: var(--primary); }
-/* 注：原「○ 半选态（橙色）」样式已删除（袁总要求：仅 √=计划参与 / 空=不参与，不再有圆圈标记） */
+/* 注：原「○ 半选态（橙色）」样式已删除（项目方要求：仅 √=计划参与 / 空=不参与，不再有圆圈标记） */
 /* 只读态：淡色不可点（点「修改」进入编辑态后恢复） */
 .tbl td .chk.ro { background: #f3f4f8; color: #c9cdd8; border-color: #e4e7f0; cursor: not-allowed; }
 .tbl td .chk.ro.on { background: #aab6d4; color: #fff; border-color: #aab6d4; }

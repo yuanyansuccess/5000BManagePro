@@ -80,7 +80,7 @@ class SchedulePhase(Base):
     -> {{table.schedule}} 进度计划表 / {{table.stakeholder_plan}} 参与矩阵。"""
     __tablename__ = "schedule_phases"
     id = Column(Integer, primary_key=True, autoincrement=True)  # 自增主键
-    project_id = Column(String(32), nullable=False, default="R105")  # 项目维度（袁总铁律）
+    project_id = Column(String(32), nullable=False, default="R105")  # 项目维度（项目方铁律）
     phase_no = Column(Integer, nullable=False)                   # 阶段序号 1..5
     phase_name = Column(String(32), nullable=False)
     ratio = Column(String(16))
@@ -117,7 +117,7 @@ class ScheduleTask(Base):
 
 
 class SvnModuleSnapshot(Base):
-    """SVN 分类同步的模块数据快照（袁总口径：整篇文档提交，但只更新所选类数据，
+    """SVN 分类同步的模块数据快照（项目方口径：整篇文档提交，但只更新所选类数据，
     其余章节保持文档原样）。module: est(估算)/risk(风险资源)/stake(利益相关方)。
     content 为该模块表格行数据的 JSON 序列化；提交时若未指定该模块则用快照渲染。"""
     __tablename__ = "svn_module_snapshot"
@@ -220,7 +220,7 @@ class Project(Base):
     config_manager = Column(String(64))                  # 配置管理者（CM）-> {{role.config_manager}}
     org_config_manager = Column(String(64))              # 组织级配置管理者 -> {{role.org_config_manager}}
     # ===== 项目组织角色（7.2.1 人力资源 / 相关方清单）=====
-    # 三处一致（袁总要求）：前端"新建/修改项目"录入 = 数据库字段 = 生成文档占位符
+    # 三处一致（项目方要求）：前端"新建/修改项目"录入 = 数据库字段 = 生成文档占位符
     requirement = Column(String(64))                     # 需求分析人员 -> {{role.requirement}}
     coder = Column(String(64))                           # 软件实现人员 -> {{role.coder}}
     measure = Column(String(64))                         # 测量分析人员 -> {{role.measure}}
@@ -250,7 +250,7 @@ class Stakeholder(Base):
 class MeetingPlan(Base):
     """会议计划（SDP 会议计划表）：会议类型|会议组织者|会议时机/时间。
     按项目维度隔离。-> {{table.meeting_plan}}
-    袁总要求：会议时机不再写死在模板中，改由数据库读取（最优解）；
+    项目方要求：会议时机不再写死在模板中，改由数据库读取（最优解）；
              数据与"项目策划 - 进度表"中的会议任务保持一致。"""
     __tablename__ = "meeting_plan"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -263,7 +263,7 @@ class MeetingPlan(Base):
 
 class StakeholderPlan(Base):
     """利益相关方参与计划（对标 R121 附录B）：阶段×活动×9 角色参与矩阵。
-    标记：√=计划参与；空=不参与（袁总要求：不再有 ○ 圆圈标记）。
+    标记：√=计划参与；空=不参与（项目方要求：不再有 ○ 圆圈标记）。
     角色列顺序与 R121 原文一致（9 个）：
     顾客代表 | 项目经理 | 部门领导 | 项目负责人 | 系统工程组 | EPG | QAG | CMG | OTG。"""
     __tablename__ = "stakeholder_plan"
@@ -412,7 +412,7 @@ class ClientWatch(Base):
     updated_at = Column(DateTime, default=datetime.now)
 
 
-# ===== SVN 配置（设置页可配，存库，袁总确认）=====
+# ===== SVN 配置（设置页可配，存库，项目方确认）=====
 class SvnRepoConfig(Base):
     """SVN 仓库配置（按项目）。统一存库，设置页可配。"""
     __tablename__ = "svn_repo_config"

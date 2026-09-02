@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """硬件资源 DAO（PP A.4.1 开发环境资源）作者：袁燕
-按 project_id 维度隔离（袁总铁律）。不含 SQL（P18）。
+按 project_id 维度隔离（项目方铁律）。不含 SQL（P18）。
 """
 from backend.db.base import BaseDao
 from backend.db.models import HwRes

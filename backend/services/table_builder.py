@@ -7,7 +7,7 @@
 功能：把"整表锚点"从 template_anchors 里的死 XML 片段，升级为
       从业务表（risks ...）实时拼 OOXML。
 
-C1 范围（袁总确认）：先做 risks 一张表动态化。
+C1 范围（项目方确认）：先做 risks 一张表动态化。
 设计原则：
   - 高内聚：整表拼装逻辑内聚于此文件
   - 低耦合：只依赖 ORM 模型 + lxml，不碰 doc_engine 内部
@@ -27,7 +27,7 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 TEMPLATES_DIR = os.path.join(config.BASE_DIR, "templates", "sdp")
 
 # 页面可用宽度（dxa）：正文纵向约 9468，附录横向约 14406（由模板 sectPr 决定）。
-# 动态表格列宽总和不得超过所在节可用宽，否则右侧被截、显示不完整（袁总反馈根因）。
+# 动态表格列宽总和不得超过所在节可用宽，否则右侧被截、显示不完整（项目方反馈根因）。
 PAGE_W_PORTRAIT = 9468
 PAGE_W_LANDSCAPE = 14406
 
@@ -39,7 +39,7 @@ def _esc(text: str) -> str:
 def _cell(text: str, width: int, merge: str = None, gridspan: int = None) -> str:
     """单个单元格。merge: 'restart'/'continue'（vMerge 竖并）；gridspan: 横并列数。"""
     # 注意：OOXML 属性必须带 w: 命名空间前缀（w:w / w:type）；
-    # 否则 Word 识别不到列宽，表格塌陷、显示不完整（袁总反馈"表格没有显示完整"的根因）。
+    # 否则 Word 识别不到列宽，表格塌陷、显示不完整（项目方反馈"表格没有显示完整"的根因）。
     tcpr = f'<w:tcW w:w="{width}" w:type="dxa"/><w:vAlign w:val="center"/>'
     if gridspan:
         tcpr += f'<w:gridSpan w:val="{gridspan}"/>'
@@ -153,7 +153,7 @@ def build_stakeholder_plan_tbl(rows) -> str:
     """利益相关方参与计划（对标 R121 附录B 表33）：
     12 列两层复合表头（行0：序号 | 活动[跨2] | 利益相关方[跨9]；
     行1：序号(续) | 阶段 | 活动描述 | 9 个角色）；
-    角色顺序（袁总确认 9 个）：顾客代表 | 项目经理 | 部门领导 | 项目负责人 |
+    角色顺序（项目方确认 9 个）：顾客代表 | 项目经理 | 部门领导 | 项目负责人 |
     系统工程组 | EPG | QAG | CMG | OTG；
     阶段列竖向合并（vMerge）；标记仅 √（不再有 ○）；尾行"说明：√表示计划参与；"。
     列宽取自 R121 原文：[817,1227,4274,648,760,939,939,876,916,916,1071,1017]。
@@ -218,7 +218,7 @@ def build_stakeholder_plan_tbl(rows) -> str:
 
 def build_meeting_plan_tbl(project_id: str = None) -> str:
     """会议计划表（-> {{table.meeting_plan}}）：序号|会议类型|会议组织者|会议时机/时间。
-    数据来源：meeting_plan 表（袁总要求：不再写死在模板里，改从数据库读取）。
+    数据来源：meeting_plan 表（项目方要求：不再写死在模板里，改从数据库读取）。
     列宽逐列取自 R121 表14（合计 9186，在纵向页可用宽内）。"""
     db = SessionLocal()
     try:
@@ -325,8 +325,9 @@ def _simple_tbl(headers: list, col_w: list, rows: list, empty_hint: str = "暂�
 def build_schedule_tbl(rows) -> str:
     """工作量估算/进度表（-> {{table.schedule}}），完全对标 R105/R121：
     6 列 + 合计行；"调整后总工作量"= 总工作量四舍五入取整（R105：14.5→15、76.5→77）。"""
-    headers = ["开发 / 阶段", "阶段 / 比例", "工程类工作量 / （人日）",
-               "管理类工作量 / （人日）", "总工作量 / （人日）", "调整后总工作量（人日）"]
+    # 项目方 2026-09-02：表7「各阶段工作量估计」单位对标 R121 口径，统一用"人时"
+    headers = ["开发 / 阶段", "阶段 / 比例", "工程类工作量 / （人时）",
+               "管理类工作量 / （人时）", "总工作量 / （人时）", "调整后总工作量（人时）"]
     # 列宽逐列取自 R121 表12（合计 8857，在纵向页可用宽内）
     col_w = [911, 709, 2125, 2268, 1305, 1539]
     data = []

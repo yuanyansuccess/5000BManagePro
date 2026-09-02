@@ -5,7 +5,7 @@
 功能：
   1) projects 表新增签署角色 / 硬件 / 软件 / 引用文档字段（覆盖 {{role.*}}/{{hw.*}}/{{sw.*}}/{{ref.*}}）。
   2) schedule_phases / stakeholders 由"全局共享"改为"按项目维度"（新增 project_id 列，
-     旧数据归属默认项目 R105，符合袁总"基于项目维度"铁律）。
+     旧数据归属默认项目 R105，符合项目方"基于项目维度"铁律）。
   3) 新建 hw_res / sw_res / doc_scale 三张业务表（项目维度），供 SDP 表格占位符聚合。
 执行：python backend/db/_migrate_proj_signoff.py
 安全：幂等（列/表存在则跳过），不丢旧数据。

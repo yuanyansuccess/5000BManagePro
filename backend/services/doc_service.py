@@ -48,7 +48,7 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
     phase = (proj.phase if proj else '') or ''
     start_date = (proj.start_date if proj else '') or ''
     approve_date = (proj.approve_date if proj else '') or ''
-    # 袁总 2026-09-02：签字页日期统一 8 位紧凑格式(20250315)，去掉横杠/斜杠
+    # 项目方 2026-09-02：签字页日期统一 8 位紧凑格式(20250315)，去掉横杠/斜杠
     approve_date = str(approve_date).replace('-', '').replace('/', '')
     ide_version = (proj.ide_version if proj else '') or ''
     sw_version = (proj.sw_version if proj else '') or ''
@@ -81,17 +81,17 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
         "{{meta.project_id}}": pid,
         "{{meta.doc_number}}": doc_no,
         "{{meta.doc_version}}": sw_version or "V1.00",
-        "{{meta.doc_ver_tag}}": "D",   # 袁总要求：页眉版本标识永远写死 D 版
+        "{{meta.doc_ver_tag}}": "D",   # 项目方要求：页眉版本标识永远写死 D 版
         "{{meta.approve_date}}": approve_date,
         "{{meta.ide_version}}": ide_version,
         "{{meta.sw_version_example}}": sw_version,
         "{{meta.total_pages}}": "%TP%",   # 占位，fill 后由 generate_doc_bytes 统计段落数回填（封面用 NUMPAGES 域时此映射不再使用）
-        "{{header.form_no}}": "CEC 设表022c",   # 袁总要求：页眉表单号永远写死 CEC 设表022c（无占位符）
+        "{{header.form_no}}": "CEC 设表022c",   # 项目方要求：页眉表单号永远写死 CEC 设表022c（无占位符）
         # sys 类（系统/软件名称）
         "{{sys.software_full}}": name,
         "{{sys.name}}": name,
         "{{sys.short}}": model,
-        # org 类（部门/单位）：封面公司名写死（袁总 2026-08-28 指示，对标 R105 封面"成都成飞电子科技有限公司"）
+        # org 类（部门/单位）：封面公司名写死（项目方 2026-08-28 指示，对标 R105 封面"成都成飞电子科技有限公司"）
         "{{org.dev_dept}}": org,
         "{{org.customer_dept}}": customer,
         "{{org.developer}}": "成都成飞电子科技有限公司",
@@ -107,7 +107,7 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
         "{{role.qa}}": qa,
         "{{role.config_manager}}": config_manager,
         "{{role.org_config_manager}}": org_config_manager,
-        # 项目组织角色（袁总要求：前端录入=数据库=生成文档，三处一致，不再写死/错位）
+        # 项目组织角色（项目方要求：前端录入=数据库=生成文档，三处一致，不再写死/错位）
         "{{role.requirement}}": requirement,
         "{{role.coder}}": coder,
         "{{role.measure}}": measure,
@@ -166,16 +166,16 @@ def load_anchors(db: Session, project_id: str, template_name: str, module=None):
         data_service.DataService.list_hw_res(db, project_id))
     table_map["{{table.sw_env_res}}"] = build_sw_env_tbl(
         data_service.DataService.list_sw_res(db, project_id))
-    # 袁总 2026-09-01：删除"文档规模估计"与"IAP 代码规模估计"两张表，
+    # 项目方 2026-09-01：删除"文档规模估计"与"IAP 代码规模估计"两张表，
     # 仅保留"文档规模估计及复用情况"一张表承载规模数据。
     table_map["{{table.doc_scale_reuse}}"] = build_doc_scale_tbl(
         data_service.DataService.list_doc_scale(db, project_id), kind="reuse")
     table_map["{{table.code_scale_est}}"] = build_code_scale_tbl(project_id)
-    # 会议计划（袁总要求：从 meeting_plan 表读取，不再写死在模板中）
+    # 会议计划（项目方要求：从 meeting_plan 表读取，不再写死在模板中）
     table_map["{{table.meeting_plan}}"] = build_meeting_plan_tbl(project_id)
     proj = db.query(Project).filter(Project.project_id == project_id).first()
     table_map["{{table.data_mgmt}}"] = build_data_mgmt_tbl(proj)
-    # ---- 分类同步（袁总口径）：整篇文档提交，但只更新所选类数据，其余章节用快照 ----
+    # ---- 分类同步（项目方口径）：整篇文档提交，但只更新所选类数据，其余章节用快照 ----
     apply_module_snapshot(db, project_id, module, table_map)
     return ph_map, table_map
 
@@ -274,7 +274,7 @@ def generate_doc_bytes(project_id: str, template_name: str,
     from backend.db.session import SessionLocal
     db = SessionLocal()
     try:
-        # 必填校验：关键项目字段未填写则报错，强制前端录入真实数据（袁总 2026-09-02 口径）
+        # 必填校验：关键项目字段未填写则报错，强制前端录入真实数据（项目方 2026-09-02 口径）
         validate_project_for_sdp(db, project_id)
         ph_map, table_map = load_anchors(db, project_id, template_name, module=module)
     finally:
@@ -297,8 +297,9 @@ def generate_doc_bytes(project_id: str, template_name: str,
         SdpFiller(tpl, tmp_path).fill_from_data(ph_map, table_map)
         # 回填总页数：统计 document.xml 段落数（近似每页段落），写回 zip
         total_pages = _estimate_pages(tmp_path)
-        _patch_placeholder_in_docx(tmp_path, "%TP%", str(total_pages))
-        # 平台数据只读保护（袁总 2026-09-02）：用 Content Control(sdt) 包裹 10 张
+        # 项目方 2026-09-02：封面页数改为 NUMPAGES 域 + 打开自动刷新（不再写死估算数字）
+        _apply_doc_fields(tmp_path, total_pages)
+        # 平台数据只读保护（项目方 2026-09-02）：用 Content Control(sdt) 包裹 10 张
         # 平台表，内容锁定(sdtContentLocked)，其余正文/手写表默认可编辑。
         # 不依赖整文档 documentProtection，规避此前 perm 注入 body 级导致 Word 空白。
         _apply_sdt_readonly(tmp_path, project_id,
@@ -365,7 +366,7 @@ def _tbl_span(doc, start, keys):
 def _mark_readonly_tables(doc):
     """平台数据对应的动态表 = 真实只读岛（Word 文档保护 perm 多区间）；
     表之间的段落间隙 = 可编辑区间。perm 均插在段落内部（OOXML 规范）。
-    袁总 2026-09-01 终审口径：平台录入数据真实不可编辑，其余正文均可编辑。"""
+    项目方 2026-09-01 终审口径：平台录入数据真实不可编辑，其余正文均可编辑。"""
     spans, pos = [], 0
     for keys in READONLY_TABLE_KEYS:
         p2 = 0
@@ -422,7 +423,7 @@ def _shade_readonly_tables(doc):
 
 
 def _protect_readonly_zones(docx_path):
-    """真实只读保护 + 只读区黄色底纹（袁总 2026-09-01 终审口径）：
+    """真实只读保护 + 只读区黄色底纹（项目方 2026-09-01 终审口径）：
     1) settings.xml 设文档只读保护(readOnly) + 打开自动更新域；
     2) 平台录入数据对应的动态表 = 真实只读岛(perm 多区间，不可编辑)，其余正文可编辑；
     3) 只读岛所有单元格加黄色底纹(FFF2CC) 辅助标识'不可编辑'；可编辑区白色；
@@ -468,7 +469,7 @@ def _protect_readonly_zones(docx_path):
 
 
 # ===================== 平台数据只读保护（Content Control 方案）=====================
-# 袁总 2026-09-02：10 张平台表整表只读，其余正文/手写表可编辑。
+# 项目方 2026-09-02：10 张平台表整表只读，其余正文/手写表可编辑。
 # 方案：用 w:sdt 内容控件包裹平台表并锁定内容(sdtContentLocked)，不依赖整文档
 # documentProtection，规避此前 perm 注入 body 级导致 Word 空白的问题。
 
@@ -541,7 +542,7 @@ def _wrap_readonly_tables_with_sdt(doc):
     return doc
 
 
-# 袁总 2026-09-02：需删除电子签名图片的人员（模板继承的历史签名，非本项目人员）
+# 项目方 2026-09-02：需删除电子签名图片的人员（模板继承的历史签名，非本项目人员）
 REMOVE_SIGNATURE_USERS = ("马慧芳",)
 
 
@@ -586,7 +587,7 @@ def _apply_sdt_readonly(docx_path, project_id=None, doc_version="V1.00"):
         doc = _fix_sdtd_version(doc, project_id, doc_version)
         doc = _wrap_readonly_tables_with_sdt(doc)
         # 恢复只读区黄色底纹(FFF2CC)：上一轮换 sdt 方案时漏掉了 _shade_readonly_tables，
-        # 导致"保护还在、颜色没了"。底纹与只读是两件事，必须同时做（袁总 2026-09-02 指出）。
+        # 导致"保护还在、颜色没了"。底纹与只读是两件事，必须同时做（项目方 2026-09-02 指出）。
         doc = _shade_readonly_tables(doc)
         data["word/document.xml"] = doc.encode("utf-8")
         with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
@@ -608,6 +609,69 @@ def _estimate_pages(docx_path):
     z.close()
     text = re.sub(r"<[^>]+>", "", xml)
     return max(1, len(text) // 1500)
+
+
+def _apply_doc_fields(docx_path, total_pages):
+    """项目方 2026-09-02：封面"共 N 页"改为 NUMPAGES 域 + 打开自动刷新。
+    1) settings.xml 加 <w:updateFields w:val="true"/>（Word 打开/打印时自动重算域）；
+    2) 把页数哨兵 %TP% 换成 NUMPAGES 域（w:fldSimple），域结果随文档内容自动更新，
+       不再依赖生成时估算的固定数字。
+    任何异常回退原文件，保证文档不损坏。"""
+    import zipfile as _zf
+    import shutil as _sh
+    bak = docx_path + ".fld.bak"
+    _sh.copy(docx_path, bak)
+    try:
+        z = _zf.ZipFile(bak)
+        names = z.namelist()
+        data = {n: z.read(n) for n in names}
+        z.close()
+        # (1) 打开时自动刷新域
+        if "word/settings.xml" in data:
+            st = data["word/settings.xml"].decode("utf-8")
+            if "<w:updateFields" not in st:
+                st = st.replace("</w:settings>",
+                                '<w:updateFields w:val="true"/></w:settings>')
+                data["word/settings.xml"] = st.encode("utf-8")
+        # (2) 页数哨兵 -> NUMPAGES 域
+        # 注意：%TP% 常与前后文字同在一个 w:t 内（如"共 %TP% 页"），
+        # 不能整元素替换，需把该 run 拆成 [前文字 run] + [域] + [后文字 run]。
+        x = data["word/document.xml"].decode("utf-8")
+        field = ('<w:fldSimple w:instr=" NUMPAGES ">'
+                 '<w:r><w:rPr><w:noProof/></w:rPr><w:t>%d</w:t></w:r>'
+                 '</w:fldSimple>' % total_pages)
+
+        def _tp_sub(m):
+            whole = m.group(0)
+            t = re.search(r"<w:t[^>]*>([^<]*%TP%[^<]*)</w:t>", whole)
+            if not t:
+                return whole
+            inner = t.group(1)
+            pre, post = inner.split("%TP%", 1)
+            rpr = re.search(r"<w:rPr>(.*?)</w:rPr>", whole)
+            rpr_s = rpr.group(1) if rpr else ""
+            run_tpl = '<w:r><w:rPr>%s</w:rPr><w:t xml:space="preserve">%s</w:t></w:r>'
+            out = (run_tpl % (rpr_s, pre)) if pre else ""
+            out += field
+            out += (run_tpl % (rpr_s, post)) if post else ""
+            return out
+
+        if "%TP%" in x:
+            # 注意：run 常带属性(<w:r w:rsidR="...">)，不能锚定无属性的 <w:r>
+            x = re.sub(r"<w:r(?:\s[^>]*)?>(?:(?!</w:r>).)*?%TP%(?:(?!</w:r>).)*?</w:r>",
+                       _tp_sub, x, flags=re.S)
+        x = x.replace("%TP%", str(total_pages))      # 兜底：异常残留
+        data["word/document.xml"] = x.encode("utf-8")
+        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
+            for n in names:
+                zo.writestr(n, data[n])
+    except Exception:
+        _sh.copy(bak, docx_path)
+    finally:
+        try:
+            os.remove(bak)
+        except OSError:
+            pass
 
 
 def _patch_placeholder_in_docx(docx_path, old, new):

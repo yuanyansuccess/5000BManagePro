@@ -10,7 +10,7 @@ import os
 # 项目根目录（backend 的上一级）
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 数据库：默认 MySQL（袁总确认）。如需本地轻量可改为 sqlite:///data/platform.db
+# 数据库：默认 MySQL（项目方确认）。如需本地轻量可改为 sqlite:///data/platform.db
 DATABASE_URL = os.getenv(
     "GJB5000B_DB_URL",
     "mysql+pymysql://root:root@127.0.0.1:3306/gjb5000b?charset=utf8mb4"

@@ -62,7 +62,7 @@ ROLE_FIELDS = ["customer_rep", "proj_mgr", "dept_lead", "proj_lead", "sys_eng", 
 
 
 class StakeholderPlanIn(BaseModel):
-    """对标 R121 附录B：9 个角色列（袁总确认，已删除软件负责人/需求/设计/实现/测试/
+    """对标 R121 附录B：9 个角色列（项目方确认，已删除软件负责人/需求/设计/实现/测试/
     测量分析/SCM/质量保证 8 列）。标记仅 √=计划参与，空=不参与（无 ○）。"""
     seq: Optional[int] = None
     phase: Optional[str] = None

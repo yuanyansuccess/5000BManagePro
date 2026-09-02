@@ -2,7 +2,7 @@
 """
 SVN 提交服务（Service 层）。
 作者：袁燕
-功能：把生成的 docx 提交到 VisualSVN 仓库（袁总已部署）。
+功能：把生成的 docx 提交到 VisualSVN 仓库（项目方已部署）。
 设计：高内聚（SVN 命令封装内聚）、低耦合（只被 doc 接口调用）。
      用 svn import 直接提交到目标路径，自动建中间目录，无需 checkout 工作副本。
 """

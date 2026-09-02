@@ -1,6 +1,6 @@
 // 作者：袁燕
 // 功能：公共壳（所有子页面共享）。渲染 topbar + sidebar 菜单，菜单点击跳转对应 html。
-// 设计原则（继承袁总解耦要求）：
+// 设计原则（继承项目方解耦要求）：
 //   1. 每个子页面是独立 html（frontend/pages/<id>.html），引本壳 + 各自 css/js
 //   2. 菜单跳转用 location.href，每个页自包含，维护互不干扰
 //   3. 登录态用 sessionStorage 简单校验（后期接后端鉴权）
@@ -29,7 +29,7 @@ function shellCurProjName() {
   return (window.__curProj && window.__curProj.projectName) || Api.curProjectId() || '';
 }
 
-// 新建项目：复用修改项目弹窗（含软件代号 Rxxx 等全部字段，袁总要求）
+// 新建项目：复用修改项目弹窗（含软件代号 Rxxx 等全部字段，项目方要求）
 function shellNewProj() {
   settingsAddProj();  // 不传 editPid = 新建模式（含"项目代号"输入框）
 }
@@ -204,7 +204,7 @@ function closeMask() {
   m.innerHTML = '';
 }
 
-// ===== 项目配置（跨页面公共，袁总要求放到顶栏「修改项目」）=====
+// ===== 项目配置（跨页面公共，项目方要求放到顶栏「修改项目」）=====
 // 新建/修改项目：editPid 非空为修改模式（全量字段预填）
 function settingsAddProj(editPid) {
   var isEdit = !!editPid;
@@ -229,13 +229,13 @@ function settingsAddProj(editPid) {
     '<div class="field"><label>IDE 版本</label><input id="np-ide" placeholder="如 Keil 4"></div>' +
     '<div class="field"><label>本机本地路径</label><input id="np-local" placeholder="D:/5000/R105"></div>' +
     '<div class="field"><label>SVN 基路径</label><input id="np-svn" placeholder="R105/trunk"></div>' +
-    '<div class="field span2 modal-sub">项目组织角色（注入 7.2.1 人力资源表 / 相关方清单，袁总要求三处一致）</div>' +
+    '<div class="field span2 modal-sub">项目组织角色</div>' +
     '<div class="field"><label>需求分析人员</label><input id="np-req" placeholder="如 马慧芳"></div>' +
     '<div class="field"><label>软件实现人员</label><input id="np-coder" placeholder="如 吴明森、罗臻"></div>' +
     '<div class="field"><label>测量分析人员</label><input id="np-measure" placeholder="如 张星竹"></div>' +
     '<div class="field"><label>项目负责人</label><input id="np-projlead" placeholder="如 孙超"></div>' +
     '<div class="field"><label>系统工程组</label><input id="np-syseng" placeholder="如 孙超"></div>' +
-    '<div class="field span2 modal-sub">签署角色（注入 SDP 签署页，对标 R105）</div>' +
+    '<div class="field span2 modal-sub">签署角色</div>' +
     '<div class="field"><label>CCB（配置控制委员会）</label><input id="np-ccb"></div>' +
     '<div class="field"><label>组织级配置管理者</label><input id="np-orgconfig"></div>' +
     '<div class="field"><label>设计者</label><input id="np-designer"></div>' +
@@ -354,7 +354,7 @@ function settingsSaveEditProj(pid) {
   if (Object.keys(payload).length === 0) { alert('没有需要保存的修改'); return; }
   Api.updateProject(pid, payload).then(function () {
     document.querySelector('.modal-mask').remove();
-    // 袁总要求：保存后立即刷新顶栏当前项目名 + 侧栏项目名 + 各子页项目标签（举一反三：新建/切换/删除同样要刷新）
+    // 项目方要求：保存后立即刷新顶栏当前项目名 + 侧栏项目名 + 各子页项目标签（举一反三：新建/切换/删除同样要刷新）
     return Api.loadCurrentProject();
   }).then(function () {
     shellRender();
