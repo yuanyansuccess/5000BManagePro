@@ -49,6 +49,7 @@ backup/
 
 # ===== 启动输出日志（运行产物）=====
 _start_out.txt
+_start_err.txt
 # 注：templates/ 下 .docx 为项目模板资产，照常提交（不忽略 *.docx）
 
 # ===== 构建产物 =====
