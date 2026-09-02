@@ -21,7 +21,7 @@ from backend.doc_engine import SdpFiller
 from backend.services.table_builder import build_risks_tbl, build_schedule_tbl, \
     build_stakeholders_tbl, build_stakeholder_plan_tbl, build_hw_env_tbl, \
     build_sw_env_tbl, build_doc_scale_tbl, build_code_scale_tbl, \
-    build_data_mgmt_tbl, build_meeting_plan_tbl
+    build_data_mgmt_tbl, build_meeting_plan_tbl, build_schedule_phases_tbl
 
 # 模板根目录：项目根/templates/sdp/<template_name>_占位符版.docx
 TEMPLATES_DIR = os.path.join(config.BASE_DIR, "templates", "sdp")
@@ -166,10 +166,14 @@ def load_anchors(db: Session, project_id: str, template_name: str, module=None):
         data_service.DataService.list_hw_res(db, project_id))
     table_map["{{table.sw_env_res}}"] = build_sw_env_tbl(
         data_service.DataService.list_sw_res(db, project_id))
-    # 项目方 2026-09-01：删除"文档规模估计"与"IAP 代码规模估计"两张表，
-    # 仅保留"文档规模估计及复用情况"一张表承载规模数据。
+    # 项目方 2026-09-02 恢复：文档规模【估计表(4列)】与【复用表(5列)】两张并存（对标 R121）
+    table_map["{{table.doc_scale_est}}"] = build_doc_scale_tbl(
+        data_service.DataService.list_doc_scale(db, project_id), kind="est")
     table_map["{{table.doc_scale_reuse}}"] = build_doc_scale_tbl(
         data_service.DataService.list_doc_scale(db, project_id), kind="reuse")
+    # 进度阶段表（对标 R121：阶段名称|计划开始时间|计划结束时间|备注）
+    table_map["{{table.schedule_phases}}"] = build_schedule_phases_tbl(
+        data_service.DataService.list_schedule_phases(db, project_id))
     table_map["{{table.code_scale_est}}"] = build_code_scale_tbl(project_id)
     # 会议计划（项目方要求：从 meeting_plan 表读取，不再写死在模板中）
     table_map["{{table.meeting_plan}}"] = build_meeting_plan_tbl(project_id)

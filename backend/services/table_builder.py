@@ -377,6 +377,23 @@ def build_data_mgmt_tbl(proj) -> str:
     return _simple_tbl(headers, col_w, data)
 
 
+def build_schedule_phases_tbl(rows) -> str:
+    """进度阶段表（-> {{table.schedule_phases}}），对标 R121：
+    4 列：阶段名称 | 计划开始时间 | 计划结束时间 | 备注。
+    rows: SchedulePhase 对象列表（phase_name / start_date / end_date / milestone）。"""
+    headers = ["阶段名称", "计划开始时间", "计划结束时间", "备注"]
+    col_w = [3000, 2200, 2200, 2068]
+    data = []
+    for r in (rows or []):
+        data.append([
+            str(getattr(r, "phase_name", "") or ""),
+            str(getattr(r, "start_date", "") or ""),
+            str(getattr(r, "end_date", "") or ""),
+            str(getattr(r, "milestone", "") or ""),
+        ])
+    return _simple_tbl(headers, col_w, data)
+
+
 def build_doc_scale_tbl(rows, kind: str = "est") -> str:
     """文档规模估计/复用表（-> {{table.doc_scale_est}}/{{table.doc_scale_reuse}}）。
     完全对标 R121：估计表=序号|文档名称|规模估计（A4页）|备注+总计行；
