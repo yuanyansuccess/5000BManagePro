@@ -252,23 +252,65 @@ class WordInjector:
         return text
 
     @staticmethod
-    def fill_tree(root, mapping, keys_desc=None):
-        """遍历 root 下所有 w:t 文本节点与元素属性做占位符替换。"""
+    def fill_tree(root, mapping, keys_desc=None, lock=False):
+        """遍历 root 下所有 w:t 文本节点与元素属性做占位符替换。
+
+        lock=True 时：被替换的 run 会用 inline sdt（<w:sdt> + sdtContentLocked）包裹，
+        实现"平台填入的数据不可编辑"；未含占位符的 run（用户填写区/手写签字区）不受影响。
+        """
         if keys_desc is None:
             keys_desc = sorted(mapping.keys(), key=lambda k: -len(k))
+        sid = [7000]      # sdt id 计数器（用列表便于嵌套函数递增）
         # 1) 文本节点
+        # 注意：必须先完成全部文本替换、再统一包裹 sdt。
+        # 边遍历边修改树会让 lxml 迭代器失效（曾导致 500 Internal Server Error）。
+        to_lock = []
         for t in _all_tags(root, "t"):
             if t.text and "{{" in t.text:
                 t.text = WordInjector.fill_scalar_text(t.text, mapping, keys_desc)
+                if lock:
+                    to_lock.append(t)
+        for t in to_lock:
+            WordInjector._lock_run_of(t, sid)
         # 2) 元素属性（签名 descr / 图片说明等）
         for el in root.iter():
             for attr, val in list(el.attrib.items()):
                 if "{{" in val:
                     el.attrib[attr] = WordInjector.fill_scalar_text(val, mapping, keys_desc)
-        # 3) 跨 run 合并
+        # 3) 跨 run 合并（占位符被拆到多个 run 时先合并再替换）
         for p in _all_tags(root, "p"):
             WordInjector._merge_runs(p, mapping, keys_desc)
         return root
+
+    @staticmethod
+    def _lock_run_of(t_node, sid_ref):
+        """把 w:t 所属的 w:r 包成 inline 内容控件并锁定内容（不可编辑）。
+        结构：<w:p>...<w:sdt><w:sdtPr><w:id/><w:lock sdtContentLocked/></w:sdtPr>
+              <w:sdtContent><w:r>原内容</w:r></w:sdtContent></w:sdt>...</w:p>
+        CT_SdtPr 子元素有顺序要求：w:id 必须排在 w:lock 之前。"""
+        WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+        def w(tag):
+            return "{%s}%s" % (WNS, tag)
+
+        run = t_node.getparent()
+        if run is None or run.tag != w("r"):
+            return
+        parent = run.getparent()
+        if parent is None:
+            return
+        sid_ref[0] += 1
+        sdt = etree.Element(w("sdt"))
+        sdt_pr = etree.SubElement(sdt, w("sdtPr"))
+        id_el = etree.SubElement(sdt_pr, w("id"))
+        id_el.set(w("val"), str(sid_ref[0]))
+        lock_el = etree.SubElement(sdt_pr, w("lock"))
+        lock_el.set(w("val"), "sdtContentLocked")
+        content = etree.SubElement(sdt, w("sdtContent"))
+        idx = list(parent).index(run)
+        parent.remove(run)
+        content.append(run)
+        parent.insert(idx, sdt)
 
     @staticmethod
     def _merge_runs(p, mapping, keys_desc):
@@ -563,7 +605,7 @@ class SdpFiller:
             if part == "word/document.xml" or part.startswith("word/header") or part.startswith("word/footer"):
                 if part.endswith(".xml"):
                     root = etree.fromstring(data[part])
-                    WordInjector.fill_tree(root, ph_map, PH_KEYS)
+                    WordInjector.fill_tree(root, ph_map, PH_KEYS, lock=True)
                     data[part] = etree.tostring(root, xml_declaration=True,
                                                 encoding="UTF-8", standalone=True)
 
