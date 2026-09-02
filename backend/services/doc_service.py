@@ -277,6 +277,9 @@ def generate_doc_bytes(project_id: str, template_name: str,
         # 必填校验：关键项目字段未填写则报错，强制前端录入真实数据（项目方 2026-09-02 口径）
         validate_project_for_sdp(db, project_id)
         ph_map, table_map = load_anchors(db, project_id, template_name, module=module)
+        # 取项目所选阶段（页眉阶段勾选联动用：F方案/C初样/S正样/D定型/P批产）
+        _proj = db.query(Project).filter(Project.project_id == project_id).first()
+        phase_val = (_proj.phase if _proj else "") or ""
     finally:
         db.close()
 
@@ -304,6 +307,8 @@ def generate_doc_bytes(project_id: str, template_name: str,
         # 不依赖整文档 documentProtection，规避此前 perm 注入 body 级导致 Word 空白。
         _apply_sdt_readonly(tmp_path, project_id,
                             ph_map.get("{{meta.doc_version}}", "V1.00"))
+        # 页眉：阶段勾选按平台所选阶段联动 + 阶段表/配置项标识锁定不可编辑
+        _apply_header_protection(tmp_path, phase_val)
         with open(tmp_path, "rb") as f:
             data = f.read()
     finally:
@@ -567,6 +572,159 @@ def _fix_sdtd_version(doc, project_id, doc_version):
     ver = (doc_version or "V1.00").strip()
     pat = re.compile(re.escape(project_id) + r"_SDTD_(?![0-9A-Za-z])")
     return pat.sub(project_id + "_SDTD_" + ver, doc)
+
+
+# 阶段代码映射（袁总 2026-09-02 定）：F=方案 C=初样 S=正样 D=定型 P=批产
+STAGE_LETTER_MAP = {
+    "方案": "F",
+    "初样": "C",
+    "正样": "S",
+    "定型": "D",
+    "批产": "P",
+}
+
+
+def _balanced_span(s, open_tag, close_tag, start=0):
+    """返回 (起, 止)：从 start 起第一个 open_tag 到其【标签平衡】的 close_tag 之后。
+    用于正确处理嵌套结构（如表格内套表格），避免非贪婪正则在内层就截断导致 XML 失衡。"""
+    i = s.find(open_tag, start)
+    if i < 0:
+        return None
+    depth = 0
+    pos = i
+    while True:
+        no = s.find(open_tag, pos)
+        nc = s.find(close_tag, pos)
+        if nc < 0:
+            return None
+        if 0 <= no < nc:
+            depth += 1
+            pos = no + len(open_tag)
+        else:
+            pos = nc + len(close_tag)
+            depth -= 1
+            if depth == 0:
+                return (i, pos)
+
+
+def _set_cell_text(tc, text):
+    """把表格单元格 tc 的显示文本设为 text：清空所有 w:t，第一个 w:t 写入 text；
+    若单元格无 w:t（空段落），则在其首个段落末尾插入一个 run。"""
+    ws = list(re.finditer(r"<w:t[^>]*>[^<]*</w:t>", tc))
+    if ws:
+        # 先清空除第一个以外的所有 w:t
+        for m in reversed(ws[1:]):
+            tc = (tc[:m.start()]
+                  + re.sub(r"(<w:t[^>]*>)[^<]*(</w:t>)", r"\1\2", m.group(0))
+                  + tc[m.end():])
+        m0 = re.search(r"<w:t[^>]*>[^<]*</w:t>", tc)
+        if m0:
+            tc = (tc[:m0.start()]
+                  + re.sub(r"(<w:t[^>]*>)[^<]*(</w:t>)", r"\1" + text + r"\2", m0.group(0))
+                  + tc[m0.end():])
+    else:
+        tc = tc.replace("</w:p></w:tc>",
+                        "<w:r><w:t>%s</w:t></w:r></w:p></w:tc>" % text, 1)
+    return tc
+
+
+def _apply_header_protection(docx_path, phase):
+    """页眉处理（袁总 2026-09-02）：
+    1) 阶段勾选按平台所选阶段联动——页眉阶段表 行1 只在 phase 对应字母列打 √，其余列清空；
+    2) 阶段表 + 所有含"配置项标识"的段落用 sdt 内容控件锁定（不可编辑）。
+    任何异常回退原文件，保证文档不损坏。"""
+    import zipfile as _zf
+    import shutil as _sh
+    letter = STAGE_LETTER_MAP.get((phase or "").strip(), "")
+    bak = docx_path + ".hdr.bak"
+    _sh.copy(docx_path, bak)
+    try:
+        z = _zf.ZipFile(bak)
+        names = z.namelist()
+        data = {n: z.read(n) for n in names}
+        z.close()
+        sid = 9000
+        for n in names:
+            if not re.match(r"word/header\d+\.xml$", n):
+                continue
+            x = data[n].decode("utf-8")
+
+            # (1) 阶段联动：把行1 的 √ 移到 letter 对应列
+            # 用平衡扫描取第一个表格（嵌套安全）
+            sp = _balanced_span(x, "<w:tbl>", "</w:tbl>")
+            seg = x[sp[0]:sp[1]] if sp else ""
+            if seg and letter:
+                trs = re.findall(r"<w:tr(?:\s[^>]*)?>.*?</w:tr>", seg, re.S)
+                if len(trs) >= 2:
+                    head, row1 = trs[0], trs[1]
+                    # 按【单元格】定位列：取表头行各单元格文本，找 letter 所在的单元格索引
+                    # （不能用"字母在字母列表中的索引"——表头还有 密级/阶段 等占位单元格）
+                    head_tcs = re.findall(r"<w:tc>.*?</w:tc>", head, re.S)
+                    head_texts = []
+                    for htc in head_tcs:
+                        ts = re.findall(r"<w:t[^>]*>([^<]*)</w:t>", htc)
+                        head_texts.append("".join(ts).strip())
+                    if letter in head_texts:
+                        idx = head_texts.index(letter)
+                        tcs = re.findall(r"<w:tc>.*?</w:tc>", row1, re.S)
+                        if idx < len(tcs):
+                            new_tcs = []
+                            for i, tc in enumerate(tcs):
+                                # 清空与填入成对执行：目标列写 √，其余列清空
+                                new_tcs.append(_set_cell_text(tc, "√" if i == idx else ""))
+                            new_row1 = row1
+                            for tc, tc2 in zip(tcs, new_tcs):
+                                new_row1 = new_row1.replace(tc, tc2, 1)
+                            x = x.replace(seg, seg.replace(row1, new_row1, 1), 1)
+
+            # (2) 锁定：阶段表（平衡扫描，嵌套安全）
+            sp2 = _balanced_span(x, "<w:tbl>", "</w:tbl>")
+            if sp2:
+                blk = x[sp2[0]:sp2[1]]
+                sid += 1
+                x = x[:sp2[0]] + (
+                    '<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
+                    '<w:sdtContent>%s</w:sdtContent></w:sdt>' % (sid, blk)
+                ) + x[sp2[1]:]
+
+            # (3) 锁定：含"配置项标识"的段落（平衡扫描）
+            pos = 0
+            while True:
+                ps = _balanced_span(x, "<w:p>", "</w:p>", pos)
+                if not ps:
+                    ps = x.find("<w:p ", pos)
+                    if ps < 0:
+                        break
+                    end = x.find(">", ps)
+                    sp3 = _balanced_span(x[:end + 1] + x[end + 1:], "<w:p>", "</w:p>", ps)
+                    if not sp3:
+                        break
+                    ps = sp3
+                blk = x[ps[0]:ps[1]]
+                if "配置项标识" in blk:
+                    sid += 1
+                    wrapped = (
+                        '<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
+                        '<w:sdtContent>%s</w:sdtContent></w:sdt>' % (sid, blk))
+                    x = x[:ps[0]] + wrapped + x[ps[1]:]
+                    pos = ps[0] + len(wrapped)
+                else:
+                    pos = ps[1]
+                if pos >= len(x):
+                    break
+
+            data[n] = x.encode("utf-8")
+
+        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
+            for n in names:
+                zo.writestr(n, data[n])
+    except Exception:
+        _sh.copy(bak, docx_path)
+    finally:
+        try:
+            os.remove(bak)
+        except OSError:
+            pass
 
 
 def _apply_sdt_readonly(docx_path, project_id=None, doc_version="V1.00"):
