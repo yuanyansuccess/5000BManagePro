@@ -60,6 +60,8 @@ def generate(project_id: str, template_name: str,
         data = doc_service.generate_doc_bytes(project_id, template_name, override or None)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -88,6 +90,8 @@ def save_to_local(project_id: str, template_name: str,
         data = doc_service.generate_doc_bytes(project_id, template_name)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     full = os.path.join(local_path, safe_name)
     # 自动创建子目录（如 filename 含 uploads/xxx.docx → 创建 uploads/）
     parent = os.path.dirname(full)
@@ -137,6 +141,8 @@ def commit_svn(project_id: str, template_name: str,
                                               override or None, module=module)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     filename = f"{project_id}_{template_name}.docx"
     rev, info = svn_service.commit_docx(

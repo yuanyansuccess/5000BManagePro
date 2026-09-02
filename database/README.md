@@ -22,3 +22,4 @@ mysqldump --user=root --password=root --host=127.0.0.1 --port=3306 ^
 
 > 说明：连接参数见 `backend/config.py` 的 `DATABASE_URL`（默认 mysql+pymysql://root:root@127.0.0.1:3306/gjb5000b）。
 > 本文件含全量业务数据，仅适用于可信的内网/私有仓库部署场景。
+[gjb5000b.sql](gjb5000b.sql)

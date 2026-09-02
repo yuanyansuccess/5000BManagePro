@@ -179,3 +179,10 @@
 - 根因2（进程层）：8000 端口被旧代码**孤儿 multiprocessing worker** 占据——run_backend.py 启动 2~8 个 worker，taskkill 只杀主进程时 worker 变孤儿继续持 socket 服务旧代码；且 netstat 显示的 LISTEN PID 可能是已死主进程，taskkill 杀了个寂寞。多次"重启后端"实际从未换到新代码（文件大小指纹可判：324251=带bug旧代码 / 323255=修复后）。
 - 修复：①回退 `_protect_readonly_zones(tmp_path)` 调用（doc_service.py，函数保留待另行攻关，perm 须插段内）；②杀光全部 cmdline 含 run_backend|backend.main 的 python 进程；③start.bat `:stop_port` 加兜底：cmd 调 PowerShell 按 cmdline 匹配清理本项目后端进程（已实测 8000 释放）。
 - 铁律固化：①**验证生成文档必须用真实 Word COM 打开**（表格数/Content.Text 长度/关键字三项），XML/zipfile 解析不算数（PowerShell COM 脚本沉淀 temp/word_open_check.ps1，注意 ps1 中文需 UTF-8 BOM）；②**杀多 worker 服务必须连 worker 全杀**（taskkill /T + 按 cmdline 兜底），重启后必须核验"新进程 PID 真在监听端口"且用文件大小指纹确认产物来自新代码；③凡给 docx 注入 OOXML 标记（perm/保护/底纹），注入后必跑真实 Word 打开验证，规范位置不确定时不注入。
+
+## 坑33 · 文档"部分区域只读"用 Content Control(sdt) 而非 permStart/permEnd，规避 Word 空白【OOXML坑】
+- 现象：需求"平台生成的数据在文档中不可编辑、其余可编辑"。坑32 用 permStart/permEnd 注入，因位置非法(根元素外/body级)导致 Word 打开静默丢全部内容变空白。
+- 根因：OOXML 的 permStart/permEnd 是 run 级元素，必须置于段落(w:p)内部；放 body 级或与 `<w:tbl>` 平级即非法，Word 静默丢弃内容。整文档 documentProtection+perm 例外方案对位置要求极严、极易错。
+- 修复（推荐方案）：改用 Content Control——用 `<w:sdt w:id><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr><w:sdtContent>…目标块…</w:sdtContent></w:sdt>` 包裹"要锁定的块"（如平台表），内容锁定不可编辑，其余区域默认可编辑；sdt 作为 body 的 block 级子元素合法，Word 打开稳定不空白。
+- 适用：凡"某几张表/某段只读、其余可编辑"的需求，首选 sdt 锁定，不要碰 perm；若确需整文档保护+可编辑例外，permStart/permEnd 必须严格插在段落内部(w:p 直接子级)并用真实 Word COM 打开验证不空白。
+- 铁律固化（与坑32同源）：凡给 docx 注入 OOXML 标记（perm/保护/底纹/sdt），注入后必跑真实 Word COM 打开（表格数/文本长度/关键字）验证，不能只看 XML/zipfile 解析。

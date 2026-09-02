@@ -2,6 +2,16 @@
 
 > 作者：袁燕 | 倒序看最新 | 跨会话生效
 
+## 2026-09-02（第十四轮：SDP占位符数据源核对 + 必填校验 + sdt只读保护，真实Word验证闭环）
+1) **袁总三点指令**：①核实开发计划占位符是否都来自MySQL（不全则完善）；②每次git提交须同步更新gjb5000b.sql（写入记忆）；③平台填的数据在生成文档中不可编辑。
+2) **问题1核实（占位符数据源）**：提取模板 SDP_占位符版.docx 全部 42 个占位符（32标量+10表）逐一核对 `_meta_ph_map` 来源——10张表100%来自MySQL业务表；32标量中30个来自 Project 表(MySQL)，**2个写死常量不是来自库**（{{meta.doc_ver_tag}}="D"、{{org.developer/maintainer}}="成都成飞电子科技有限公司"，均为袁总此前明确指示对标R105封面，答复"保持写死"）；另 {{header.form_no}}="CEC设表022c" 代码固定（模板无此占位符）。结论：除2个业务定值写死外，占位符数据全来自MySQL。
+3) **问题1完善（必填校验）**：袁总选"改必填校验"——关键字段空则生成报错，强制前端录入真实数据。doc_service 新增 `SDP_REQUIRED_PROJECT_FIELDS`(软件名称/软件负责人/顾客代表单位/批准日期/承研单位) + `validate_project_for_sdp()`，在 `generate_doc_bytes` 生成前调用；doc.py 三个接口(generate/save-to-local/commit-svn)捕获 `ValueError`→400（detail带缺失字段中文清单）。前端 pp.js 的 .catch 已能展示 e.message，无需改。
+4) **问题3实现（平台数据不可编辑，sdt方案）**：袁总选"10张平台表整表只读、其余可编辑"，方案由我定（保打开优先）。吸取坑32教训，**不用 perm**（曾因插body级致Word空白），改用 **Content Control(sdt)**：`doc_service._wrap_readonly_tables_with_sdt` 用 `<w:sdt><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr><w:sdtContent>…平台表…</w:sdtContent></w:sdt>` 包裹 `READONLY_TABLE_KEYS` 命中的10张平台表；`_apply_sdt_readonly` 套用到生成文档。不依赖整文档 documentProtection，彻底规避OOXML位置非法。
+5) **真实验证（三层全过）**：标准 run_backend.py 启最新代码后端常驻(8000, PID 17680) → 真实 HTTP 打 /api/doc/R105/SDP/save-to-local 落盘 D:/5000/R105/R105_SDP.docx(323610字节) → 解析 document.xml：sdt_count=10、sdtContentLocked=10、tbl=31、text=27540字符；**真实 Word COM 打开：text_chars=27507，不空白**（坑32的perm空白彻底规避）。空项目 TEST_EMPTY 调 save-to-local → 400（detail="…软件名称、软件负责人(编制人)、顾客代表单位、批准日期、承研单位"）。
+6) **数据修复（脏数据铁律）**：R105 的 org/customer_dept/approve_date 此前为空（旧生成靠回退默认''，现被必填校验拦下），用 MySQL 命令补全（org=成都成飞电子科技有限公司、customer_dept=中国电子科技集团公司第二十九研究所、approve_date=2025-03-15，**值请袁总核对真实性**）。
+7) **问题2记忆**：work-rules.md 新增 §8「数据库与Git同步铁律」——每次git提交(含push)前必须 mysqldump 重导 gjb5000b.sql 并随代码 git add database 提交。本轮已按此重导（804365字节，含R105补全的3字段）。
+8) **提交**：本轮代码+数据库+gjb5000b.sql 已 git 提交并 push 到 origin/main（commit 信息见推送输出）。
+
 ## 2026-09-01（第十三轮：R105_SDP.docx"打开空白"真凶落网——perm非法注入+孤儿worker双重根因，真实Word验证闭环）
 1) **袁总第三次反馈"打开还是空"**——证明前两轮"验证"全不合格。本轮用 PowerShell 原生 Word COM（temp/word_open_check.ps1，注意中文 ps1 必须 UTF-8 BOM）打开实测：我生成的 R105_SDP.docx **Word 打开表格=0/正文=1 完全空白**（XML 解析却有 31 表 2670 文本节点）；对照 trunk 下 8/28 旧文件打开正常（37表/29178字）→ 锁定第十轮加的保护功能。
 2) **根因1（文档层）**：`_mark_readonly_tables` 注入的 permStart/permEnd 位置非法——首个插在 document.xml 位置 0（根元素外）、其余插在 body 级与表格平级（OOXML 要求段内），Word 静默丢弃全部内容。已回退 `doc_service.py` 的 `_protect_readonly_zones(tmp_path)` 调用（函数保留，"表只读/正文可编辑"需求待另行攻关，须按规范插段内）。

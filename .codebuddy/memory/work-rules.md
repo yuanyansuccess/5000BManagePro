@@ -49,3 +49,10 @@
 
 ## 7. 脏数据铁律（继承智能柜）
 - 代码层绝不写数据修复函数；不一致直接用 MySQL 命令修复
+
+## 8. 数据库与 Git 同步铁律（袁总 2026-09-02 指令）
+- **每次 git 提交（含 push 到远端）前，必须重新导出最新 MySQL 库 gjb5000b**，保证 clone 可还原全部文档数据。
+- 导出命令（结果文件 `database/gjb5000b.sql`，已随上次提交入库，未被 .gitignore 忽略）：
+  `mysqldump --user=root --password=root --host=127.0.0.1 --port=3306 --default-character-set=utf8mb4 --single-transaction --routines --events --result-file=database/gjb5000b.sql gjb5000b`
+- 提交时必须 `git add database` 一起提交；数据库变更与代码变更同批入库。
+- 说明：`gjb5000b.sql` 含全量真实业务数据（R105/顾客/人员/签署），仅适用私有/可信仓库，公开前需改 `--no-data` 仅结构版。

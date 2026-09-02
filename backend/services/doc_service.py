@@ -272,6 +272,8 @@ def generate_doc_bytes(project_id: str, template_name: str,
     from backend.db.session import SessionLocal
     db = SessionLocal()
     try:
+        # 必填校验：关键项目字段未填写则报错，强制前端录入真实数据（袁总 2026-09-02 口径）
+        validate_project_for_sdp(db, project_id)
         ph_map, table_map = load_anchors(db, project_id, template_name, module=module)
     finally:
         db.close()
@@ -294,11 +296,10 @@ def generate_doc_bytes(project_id: str, template_name: str,
         # 回填总页数：统计 document.xml 段落数（近似每页段落），写回 zip
         total_pages = _estimate_pages(tmp_path)
         _patch_placeholder_in_docx(tmp_path, "%TP%", str(total_pages))
-        # 已回退 perm 只读保护（2026-09-01）：_protect_readonly_zones 注入的
-        # permStart/permEnd 位置违反 OOXML 规范（首个标记插在根元素外、其余插在
-        # body 级与表格平级，规范要求必须在段落内部），Word 打开时静默丢弃全部
-        # 内容导致文档空白。经真实 Word COM 打开复现确认。保护方案另行攻关，
-        # 当前优先保证文档内容正常。
+        # 平台数据只读保护（袁总 2026-09-02）：用 Content Control(sdt) 包裹 10 张
+        # 平台表，内容锁定(sdtContentLocked)，其余正文/手写表默认可编辑。
+        # 不依赖整文档 documentProtection，规避此前 perm 注入 body 级导致 Word 空白。
+        _apply_sdt_readonly(tmp_path)
         with open(tmp_path, "rb") as f:
             data = f.read()
     finally:
@@ -450,6 +451,80 @@ def _protect_readonly_zones(docx_path):
         doc = data["word/document.xml"].decode("utf-8")
         doc = _shade_readonly_tables(doc)
         doc = _mark_readonly_tables(doc)
+        data["word/document.xml"] = doc.encode("utf-8")
+        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
+            for n in names:
+                zo.writestr(n, data[n])
+    except Exception:
+        _sh.copy(bak, docx_path)
+    finally:
+        try:
+            os.remove(bak)
+        except OSError:
+            pass
+
+
+# ===================== 平台数据只读保护（Content Control 方案）=====================
+# 袁总 2026-09-02：10 张平台表整表只读，其余正文/手写表可编辑。
+# 方案：用 w:sdt 内容控件包裹平台表并锁定内容(sdtContentLocked)，不依赖整文档
+# documentProtection，规避此前 perm 注入 body 级导致 Word 空白的问题。
+
+SDP_REQUIRED_PROJECT_FIELDS = {
+    "project_name": "软件名称",
+    "owner": "软件负责人(编制人)",
+    "customer_dept": "顾客代表单位",
+    "approve_date": "批准日期",
+    "org": "承研单位",
+}
+
+
+def validate_project_for_sdp(db: Session, project_id: str):
+    """生成《软件开发计划》前必填校验：关键项目字段未填写则报错，强制前端录入真实数据。"""
+    proj = db.query(Project).filter(Project.project_id == project_id).first()
+    missing = [label for f, label in SDP_REQUIRED_PROJECT_FIELDS.items()
+               if not (proj and getattr(proj, f))]
+    if missing:
+        raise ValueError(
+            "生成《软件开发计划》失败：以下关键字段未填写，请先在「项目信息」中补全 —— "
+            + "、".join(missing))
+
+
+def _wrap_readonly_tables_with_sdt(doc):
+    """用 w:sdt 包裹 READONLY_TABLE_KEYS 命中的平台表（内容锁定，其余可编辑）。"""
+    spans = []
+    for keys in READONLY_TABLE_KEYS:
+        p2 = 0
+        while True:
+            r = _tbl_span(doc, p2, keys)
+            if not r:
+                break
+            if not any(a < r[1] and r[0] < b for a, b in spans):
+                spans.append(r)
+            p2 = r[1]
+    spans.sort(reverse=True)  # 从后往前插，避免索引偏移
+    sid = 1
+    for a, b in spans:
+        seg = doc[a:b]
+        repl = ('<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
+                '<w:sdtContent>' % sid) + seg + '</w:sdtContent></w:sdt>'
+        sid += 1
+        doc = doc[:a] + repl + doc[b:]
+    return doc
+
+
+def _apply_sdt_readonly(docx_path):
+    """对 docx 内 10 张平台表加 sdt 内容锁定（其余不受影响）。失败则回退原文件，保证文档不损坏。"""
+    import zipfile as _zf
+    import shutil as _sh
+    bak = docx_path + ".sdt.bak"
+    _sh.copy(docx_path, bak)
+    try:
+        z = _zf.ZipFile(bak)
+        names = z.namelist()
+        data = {n: z.read(n) for n in names}
+        z.close()
+        doc = data["word/document.xml"].decode("utf-8")
+        doc = _wrap_readonly_tables_with_sdt(doc)
         data["word/document.xml"] = doc.encode("utf-8")
         with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
             for n in names:
