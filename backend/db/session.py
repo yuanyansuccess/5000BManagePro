@@ -69,6 +69,8 @@ def init_db():
             _migrate_proj_signoff.main()
         except Exception as e:
             print("[migrate_proj_signoff] skip:", e)
+        # 袁总 2026-09-03：软件配置项清单字段（1.1 标识章节 b）动态化）
+        _migrate_project_cfg_items()
         # 现有项目补预置：文档规模清单（相关方由 scripts/seed_r105_stake.py 专项管理）
         try:
             from backend.db._seed_doc_scale import seed_doc_scale
@@ -77,6 +79,46 @@ def init_db():
                 seed_doc_scale(SessionLocal(), p.project_id)
         except Exception as e:
             print("[seed] skip:", e)
+
+
+def _migrate_project_cfg_items():
+    """袁总 2026-09-03（第三十三轮）：projects 表补 cfg_items 列（软件配置项清单 JSON），
+    并为尚无配置项的 R105 预置两个真实配置项（主软件 + IAP 下位机软件）。
+    幂等：列存在即跳过；已填值的项目不覆盖（避免冲掉前端编辑结果）。
+    """
+    import json
+    from sqlalchemy import text
+    try:
+        cols = [c[0] for c in Engine.connect().execute(
+            text("SHOW COLUMNS FROM projects")).fetchall()]
+    except Exception as e:
+        print("[migrate_cfg_items] skip:", e)
+        return
+    if "cfg_items" not in cols:
+        try:
+            with Engine.begin() as conn:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN cfg_items TEXT"))
+            print("[migrate_cfg_items] ADD projects.cfg_items OK")
+        except Exception as e:
+            print("[migrate_cfg_items] ALTER skip:", e)
+            return
+    # 预置：仅对 cfg_items 为空的项目填默认值
+    default = json.dumps([
+        {"name": "终点/轮载开关模拟器驱动软件", "code": "R105_0201"},
+        {"name": "IAP下位机软件", "code": "R105_0202"},
+    ], ensure_ascii=False)
+    try:
+        with Engine.begin() as conn:
+            rows = conn.execute(text(
+                "SELECT project_id FROM projects WHERE cfg_items IS NULL OR cfg_items=''")
+            ).fetchall()
+            for (pid,) in rows:
+                if pid == "R105":
+                    conn.execute(text("UPDATE projects SET cfg_items=:v WHERE project_id=:p"),
+                                 {"v": default, "p": pid})
+                    print("[migrate_cfg_items] preset R105 cfg_items")
+    except Exception as e:
+        print("[migrate_cfg_items] preset skip:", e)
 
 
 def _migrate_risk_columns():

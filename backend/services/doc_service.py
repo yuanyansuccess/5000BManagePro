@@ -3,17 +3,15 @@
 文档生成服务（Service 层）。
 作者：袁燕
 功能：从 template_anchors 读取锚点数据，调用 doc_engine 灌装占位符模板，
-      产出正式 docx 字节流。模板文件在 templates/ 目录（平台外，不提交 SVN）。
-设计：高内聚（文档拼装逻辑内聚）、低耦合（只依赖 doc_engine + DAO/ORM）。
+      再经 doc_postprocess 后处理流水线，产出正式 docx 字节流。
+      模板文件在 templates/ 目录（平台外，不提交 SVN）。
+设计：高内聚（本模块只做编排与数据聚合）、低耦合（docx 细节全在
+      doc_engine 灌装 + doc_postprocess 后处理 + table_builder 表格构建）。
 """
 import os
 import re
-from lxml import etree
 
 from sqlalchemy.orm import Session
-
-# OOXML 命名空间（统计段落/打补丁占位符用，避免重复定义）
-W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 from backend import config
 from backend.db.models import TemplateAnchor, Project
@@ -21,7 +19,32 @@ from backend.doc_engine import SdpFiller
 from backend.services.table_builder import build_risks_tbl, build_schedule_tbl, \
     build_stakeholders_tbl, build_stakeholder_plan_tbl, build_hw_env_tbl, \
     build_sw_env_tbl, build_doc_scale_tbl, build_code_scale_tbl, \
-    build_data_mgmt_tbl, build_meeting_plan_tbl, build_schedule_phases_tbl
+    build_data_mgmt_tbl, build_meeting_plan_tbl, build_schedule_phases_tbl, \
+    build_baselines_tbl, build_human_resource_tbl, build_org_chart_tbl
+from backend.services.doc_postprocess import (
+    _estimate_pages,
+    _apply_doc_fields,
+    _apply_sdt_readonly,
+    _apply_header_protection,
+    _center_index_columns,
+    _compact_table_headers,
+    _clean_all_table_spaces,
+    _strip_breaks_between_caption_and_table,
+    _strip_cover_to_toc_blanks,
+    _add_caption_keepnext,
+    _trim_trailing_empty_paragraphs,
+    _finalize_placeholders,
+    _fit_tables_to_page,
+    _separate_adjacent_tables,
+    _remove_redundant_text,
+    _tighten_appendix_captions,
+    _unify_appendix_pages,
+    _fix_11b_cfg_items,
+    _ensure_signature_page,
+    _auto_size_all_tables,
+    _adjust_appendix_pgnumtype,
+    _update_fields_with_word,
+)
 
 # 模板根目录：项目根/templates/sdp/<template_name>_占位符版.docx
 TEMPLATES_DIR = os.path.join(config.BASE_DIR, "templates", "sdp")
@@ -30,6 +53,36 @@ TEMPLATES_DIR = os.path.join(config.BASE_DIR, "templates", "sdp")
 def _tpl_path(template_name: str) -> str:
     """按模板名定位占位符版 docx。约定：<name>_占位符版.docx。"""
     return os.path.join(TEMPLATES_DIR, f"{template_name}_占位符版.docx")
+
+
+def _parse_cfg_items(raw) -> list:
+    """袁总 2026-09-03：解析 Project.cfg_items（JSON 数组）为配置项列表。
+    入参：JSON 字符串，如 '[{"name":"…","code":"R105_0201"}]'。
+    返回：list[dict]，解析失败/为空时回退为单个"主软件"配置项（保证文档不空）。
+    """
+    import json
+    if not raw:
+        return [{"name": "终点/轮载开关模拟器驱动软件", "code": project_id_default()}]
+    try:
+        items = json.loads(raw)
+    except Exception:
+        return [{"name": raw, "code": ""}] if isinstance(raw, str) else []
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list) or not items:
+        return [{"name": "终点/轮载开关模拟器驱动软件", "code": ""}]
+    out = []
+    for it in items:
+        if isinstance(it, dict) and it.get("name"):
+            out.append(it)
+        elif isinstance(it, str) and it:
+            out.append({"name": it, "code": ""})
+    return out or [{"name": "终点/轮载开关模拟器驱动软件", "code": ""}]
+
+
+def project_id_default() -> str:
+    """占位符兜底用的默认项目号（cfg_items 为空时）。"""
+    return "R105"
 
 
 def _meta_ph_map(db: Session, project_id: str) -> dict:
@@ -45,15 +98,16 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
     owner = (proj.owner if proj else '') or ''
     org = (proj.org if proj else '') or ''
     customer = (proj.customer_dept if proj else '') or ''
-    phase = (proj.phase if proj else '') or ''
-    start_date = (proj.start_date if proj else '') or ''
     approve_date = (proj.approve_date if proj else '') or ''
     # 项目方 2026-09-02：签字页日期统一 8 位紧凑格式(20250315)，去掉横杠/斜杠
     approve_date = str(approve_date).replace('-', '').replace('/', '')
     ide_version = (proj.ide_version if proj else '') or ''
     sw_version = (proj.sw_version if proj else '') or ''
     doc_no = (proj.doc_number if proj else '') or f'{pid}_SDP_V1.00'
-    svn_base = (proj.svn_base_path if proj else '') or f'{pid}/trunk'
+    # 袁总 2026-09-03 需求2：封面编号仅前缀不可编辑，版本号可编辑
+    _m_doc = re.match(r'^(.*_)(V[\d.]+)$', doc_no)
+    doc_prefix = _m_doc.group(1) if _m_doc else doc_no
+    doc_ver_edit = _m_doc.group(2) if _m_doc else "V1.00"
     # SDP 签署角色 / 开发环境 / 引用文档（设置页可编辑，按项目维度）
     ccb = (proj.ccb if proj else '') or ''
     designer = (proj.designer if proj else '') or ''
@@ -76,10 +130,30 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
     sw_name_iap = (proj.sw_name_iap if proj else '') or ''
     ref_sdtd = (proj.ref_sdtd_doc_number if proj else '') or ''
     ref_sqap = (proj.ref_sqap_doc_number if proj else '') or ''
+    # 袁总 2026-09-03：软件配置项清单（1.1 标识章节 b）动态化）
+    # 从 Project.cfg_items（JSON 数组）解析出配置项名称与数量；
+    # 无数据时回退为 1 个"主软件"配置项，保证文档不出现空占位。
+    cfg_items = _parse_cfg_items(proj.cfg_items if proj else None)
+    cfg_count = str(len(cfg_items))
+    # 袁总 2026-09-03（第四十一轮）：1.1 标识 b) 软件名称需【逐个列出配置项
+    # 名称 + 配置项标识】（如"终点/轮载开关模拟器驱动软件（R105_0201）"），
+    # 此前只输出名称、标识丢失，袁总反复反馈"两个配置项没体现"。
+    cfg_names = "、".join(
+        (("%s（%s）" % (it.get("name", ""), it.get("code", "")))
+         if it.get("code") else str(it.get("name", "")))
+        for it in cfg_items if it.get("name"))
+    # 袁总 2026-09-03：表 11 软件配置管理库三库地址改为
+    # https://192.168.5.160:444/svn/configurationLib/software/{trunk|tags|branches}/R105
+    _svn_root = "https://192.168.5.160:444/svn/configurationLib/software"
     return {
         # meta 类（模板 {{meta.*}}）
         "{{meta.project_id}}": pid,
+        # 袁总 2026-09-03（页眉丢失根因之一）：页眉 header4/5 的"配置项标识"列
+        # 用的是 {{meta.doc_number}}，此前 ph_map 缺此键 → 页眉占位符替换不生效。
         "{{meta.doc_number}}": doc_no,
+        # 袁总 2026-09-03 需求2：封面编号拆前缀(锁)+版本(可编辑)
+        "{{meta.doc_prefix}}": doc_prefix,
+        "{{meta.doc_ver_edit}}": doc_ver_edit,
         "{{meta.doc_version}}": sw_version or "V1.00",
         "{{meta.doc_ver_tag}}": "D",   # 项目方要求：页眉版本标识永远写死 D 版
         "{{meta.approve_date}}": approve_date,
@@ -91,11 +165,24 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
         "{{sys.software_full}}": name,
         "{{sys.name}}": name,
         "{{sys.short}}": model,
+        # 袁总 2026-09-03：引用文件表"《软件名》软件研制任务书"整句锁定用
+        # （模板已把"{{sys.software_full}}软件研制任务书"合并为该占位符）
+        "{{sys.taskbook}}": (name + "软件研制任务书") if name else "",
+        # 袁总 2026-09-03：1.1 标识章节 b）软件配置项数量与名称清单
+        "{{sys.cfg_count}}": cfg_count,
+        "{{sys.cfg_items}}": cfg_names,
         # org 类（部门/单位）：封面公司名写死（项目方 2026-08-28 指示，对标 R105 封面"成都成飞电子科技有限公司"）
         "{{org.dev_dept}}": org,
         "{{org.customer_dept}}": customer,
+        "{{org.user_dept}}": customer,   # 项目用户（同项目需方一致，新增占位符对接 Project.customer_dept）
         "{{org.developer}}": "成都成飞电子科技有限公司",
-        "{{org.maintainer}}": "成都成飞电子科技有限公司",
+        "{{org.maintainer}}": org,       # 项目保障机构 = 承研单位（同一开发部）
+        "{{org.site}}": model,           # 项目当前运行现场 = 项目型号（CB-B/DSQ-1AG）
+        "{{org.plan_site}}": model,      # 项目计划运行现场 = 项目型号（同上）
+        # cm 类（SVN 路径）—— 袁总 2026-09-03：表 11 软件配置管理库三库地址
+        "{{cm.svn_trunk}}": f"{_svn_root}/trunk/{project_id}",
+        "{{cm.svn_branches}}": f"{_svn_root}/branches/{project_id}",
+        "{{cm.svn_tags}}": f"{_svn_root}/tags/{project_id}",
         # role 类（签署角色：编制/开发方=项目负责人；其余来自设置页签署角色字段）
         "{{role.author}}": owner,
         "{{role.ccb}}": ccb,
@@ -121,10 +208,6 @@ def _meta_ph_map(db: Session, project_id: str) -> dict:
         # ref 类（引用文档，A.2.1）
         "{{ref.sdtd_doc_number}}": ref_sdtd,
         "{{ref.sqap_doc_number}}": ref_sqap,
-        # cm 类（SVN 路径）
-        "{{cm.svn_trunk}}": f"https://yuanyan/svn/{svn_base}",
-        "{{cm.svn_branches}}": f"https://yuanyan/svn/{svn_base.replace('/trunk', '/branches')}",
-        "{{cm.svn_tags}}": f"https://yuanyan/svn/{svn_base.replace('/trunk', '/tags')}",
     }
 
 
@@ -177,6 +260,19 @@ def load_anchors(db: Session, project_id: str, template_name: str, module=None):
     table_map["{{table.code_scale_est}}"] = build_code_scale_tbl(project_id)
     # 会议计划（项目方要求：从 meeting_plan 表读取，不再写死在模板中）
     table_map["{{table.meeting_plan}}"] = build_meeting_plan_tbl(project_id)
+    # 基线列表（项目方 2026-09-02：从 config_items 表按 baseline 分组聚合，
+    # 多配置项用中文顿号"、"连接——不再写死在模板中）
+    from backend.dao import config_item_dao as _ci_dao
+    table_map["{{table.baselines}}"] = build_baselines_tbl(
+        _ci_dao.ConfigItemDao.list_baselines(db, project_id))
+    # 人力资源表（项目方 2026-09-02：从 project_members 表读，所有"姓名"在文档中 sdt 锁定）
+    from backend.dao import project_member_dao as _pm_dao
+    table_map["{{table.human_resource}}"] = build_human_resource_tbl(
+        _pm_dao.ProjectMemberDao.list_by_project(db, project_id))
+    # 组织机构表（项目方 2026-09-02：对标 R121 表29，从 org_chart 表读，sdt 锁定）
+    from backend.dao import org_chart_dao as _oc_dao
+    table_map["{{table.org_chart}}"] = build_org_chart_tbl(
+        _oc_dao.OrgChartDao.list_by_project(db, project_id))
     proj = db.query(Project).filter(Project.project_id == project_id).first()
     table_map["{{table.data_mgmt}}"] = build_data_mgmt_tbl(proj)
     # ---- 分类同步（项目方口径）：整篇文档提交，但只更新所选类数据，其余章节用快照 ----
@@ -267,7 +363,6 @@ def upsert_anchors(db: Session, project_id: str, template_name: str,
     db.commit()
     return cnt
 
-
 def generate_doc_bytes(project_id: str, template_name: str,
                        ph_override: dict = None, module=None) -> bytes:
     """
@@ -296,12 +391,12 @@ def generate_doc_bytes(project_id: str, template_name: str,
 
     # 临时文件灌装（复用 SdpFiller，不动 doc_engine 内部）
     import tempfile
-    import zipfile
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
     tmp_path = tmp.name
     tmp.close()
     try:
-        SdpFiller(tpl, tmp_path).fill_from_data(ph_map, table_map)
+        SdpFiller(tpl, tmp_path).fill_from_data(ph_map, table_map,
+                                                lock_keys=LOCKED_PLACEHOLDER_KEYS)
         # 回填总页数：统计 document.xml 段落数（近似每页段落），写回 zip
         total_pages = _estimate_pages(tmp_path)
         # 项目方 2026-09-02：封面页数改为 NUMPAGES 域 + 打开自动刷新（不再写死估算数字）
@@ -313,6 +408,75 @@ def generate_doc_bytes(project_id: str, template_name: str,
                             ph_map.get("{{meta.doc_version}}", "V1.00"))
         # 页眉：阶段勾选按平台所选阶段联动 + 阶段表/配置项标识锁定不可编辑
         _apply_header_protection(tmp_path, phase_val)
+        # 项目方 2026-09-02：所有表格"序号"列统一居中（水平+垂直），
+        # 覆盖模板静态表与动态生成表（在 sdt 包裹后执行，含 sdtContent 内的表）。
+        _center_index_columns(tmp_path)
+        # 袁总 2026-09-03（第三十九轮）：表头紧凑化对标 R121（序\xa0号→序号、
+        # 型号 / 图号→型号/图号）——袁总反复点名的"表格里的空格"根因。
+        _compact_table_headers(tmp_path)
+        # 袁总 2026-09-04（反复反馈"所有表格里的空格始终没解决"）：
+        # 上面两个函数只做 strip()/表头紧凑化，不动单元格【中间】的空格，
+        # 导致封面签署页"审  定"、文件分发表"文  件  分  发/纸    质"等
+        # 27 处字间距空格长期残留。本函数对全部表格单元格做强制清理。
+        _clean_all_table_spaces(tmp_path)
+        # 袁总 2026-09-03：先删表标题与表格之间的硬分页符（否则会产生整页
+        # 空白，且 keepNext 失效）→ 再给表标题加 keepNext 绑定表格。
+        _strip_breaks_between_caption_and_table(tmp_path)
+        # 袁总 2026-09-04（正文前空白页 P3）：删封面签署区之后、目录之前的纯空段
+        _strip_cover_to_toc_blanks(tmp_path)
+        _add_caption_keepnext(tmp_path)
+        # 袁总 2026-09-03：删除文末多余空段落，消除末页空白页
+        _trim_trailing_empty_paragraphs(tmp_path)
+        # 袁总 2026-09-03（第四十二轮）：兜底替换文档内残留的 {{...}}}} 占位符
+        # ——跨 run 拆分或 ph_map 缺键的场景，确保生成文件无任何占位符
+        # （空值统一替换为 V1.00，对应袁总"默认写成 v1.00"指示）
+        _finalize_placeholders(tmp_path, ph_map)
+        # 袁总 2026-09-03：全文档表格宽度适配页面 + 整表居中。
+        # 诊断发现纵向页可用宽仅 9468 dxa，而模板/生成的表大量超宽
+        # （附录B 15083、附录A 14425、表24 硬件 10508、表19 10260…），
+        # 导致"超出页边"。本函数统一等比缩到可用宽内并加 tblPr/jc=center。
+        _fit_tables_to_page(tmp_path)
+        # 袁总 2026-09-03：相邻两张表之间无段落时 Word 会合并渲染为一张表
+        # （表22/23"和到一起"根因），统一插入空段落强制分隔。
+        _separate_adjacent_tables(tmp_path)
+        # 袁总 2026-09-03：删除正文中的冗余残句（"CB-B/DSQ-1AGIAP下位机软件 下位机软件"）
+        _remove_redundant_text(tmp_path)
+        # 袁总 2026-09-04（"48页那根横线把它放在47页"）：文档末尾残留 8 个空段落，
+        # Word 会多渲染出一个近乎空白的末页（第48页），只剩一根横线。
+        # 上次清理调用得太早——后续的 _separate_adjacent_tables 等步骤又会补回
+        # 空段落，故在【所有结构处理完成后、统计页数前】再清一次，
+        # 让末页内容收回上一页（48 页 → 47 页）。
+        _trim_trailing_empty_paragraphs(tmp_path)
+        # 袁总 2026-09-04（"附录 C/A 标题上下多余空白"）：删掉附录标题上下多余空段
+        _tighten_appendix_captions(tmp_path)
+        # 袁总 2026-09-04（"附录A/B 要和下面表格挨着、48页去掉"）：
+        # 删附录A/B 标题前的 pageBreakBefore，让 A/B 紧贴前一节末；附录B 不再
+        # 独立成页；保留附录C 的 pageBreakBefore（横版分节）。
+        _unify_appendix_pages(tmp_path)
+        # 袁总 2026-09-04（"1.1 b 应该是两条但只显示一条"）根因：
+        # 模板 1.1 b 章节只画了 R105_0201 一行，第二行根本没有占位符挂载点。
+        # 后处理在第一行后追加 N-1 个配置项行。
+        _fix_11b_cfg_items(tmp_path, project_id)
+        # 袁总 2026-09-04（新增签字页）：独立"签字页"，单页布局，参考 R121 封面签署区做法，
+        # 角色姓名取自 Project 签署字段（与封面同源，数据单一源头）。
+        _ensure_signature_page(tmp_path, project_id)
+        # 袁总 2026-09-04（"表 5/7/19/23/24/25 看不全"）：模板静态表（如表 19）
+        # 没有走 _simple_tbl 自适应字号分支，默认继承 docDefaults=24（小四）撑不下
+        # 911 dxa 这样的窄列，逐字竖排"开/发/阶/段"。本函数对【全文档所有表格】
+        # （含 sdt 内的动态表与模板静态表）按列宽强制设字号（21/22/24）。
+        _auto_size_all_tables(tmp_path)
+        # 袁总 2026-09-03：上述后处理（表格宽度适配、删除段落）会改变实际页数，
+        # 必须【最后】重新统计页数并刷新封面 NUMPAGES 域结果，
+        # 否则封面"（共 N 页）"是过期数字（原流程在改页数前统计，导致与实际不符）。
+        _apply_doc_fields(tmp_path)
+        # 袁总 2026-09-04（"目录页码与实际不一致"）：
+        # R121 模板 final sectPr pgNumType.start=34，但 R105 正文短，
+        # 项目组织视觉页就到 34-37，导致附录 A/B/C 视觉页与正文重号。
+        # 改为附录 A 的全局页号（让附录 C 节从附录 A 全局页重新编号）。
+        _adjust_appendix_pgnumtype(tmp_path)
+        # 袁总 2026-09-03：NUMPAGES 域真实页数只有 Word 分页引擎知道，
+        # 用 COM 实打开更新全部域并保存（封面总页码与实际一致）。
+        _update_fields_with_word(tmp_path)
         with open(tmp_path, "rb") as f:
             data = f.read()
     finally:
@@ -323,164 +487,6 @@ def generate_doc_bytes(project_id: str, template_name: str,
         except OSError:
             pass
     return data
-
-
-# 平台 4 类录入内容对应的只读表（表头关键词须全部命中才判定）。
-# 这些表的数据均来自"项目策划"页录入，生成文档后锁定为只读岛；
-# 模板静态表（签署页/引用文件/评审计划/基线列表等）不在其中，保持可编辑。
-READONLY_TABLE_KEYS = [
-    ['规模估计', '复用页数'],
-    ['规模估计（行）'],
-    ['调整后总工作量'],
-    ['会议类型', '会议组织者'],
-    ['姓名/单位'],
-    ['顾客代表'],
-    ['资源名称', '跟踪情况'],
-    ['软件名称'],
-    ['风险通报方式及频率'],
-    ['数据类别', '收集时机'],
-]
-
-
-def _tbl_span(doc, start, keys):
-    """从 start 起找第一个表头同时含 keys 的最外层表格区间。"""
-    pos = start
-    while True:
-        cands = [x for x in (doc.find('<w:tbl>', pos), doc.find('<w:tbl ', pos)) if x >= 0]
-        if not cands:
-            return None
-        s = min(cands)
-        depth, p2, end = 0, s, None
-        while True:
-            c2 = [x for x in (doc.find('<w:tbl>', p2), doc.find('<w:tbl ', p2)) if x >= 0]
-            nxt_open = min(c2) if c2 else -1
-            nxt_close = doc.find('</w:tbl>', p2)
-            if nxt_close < 0:
-                return None
-            if 0 <= nxt_open < nxt_close:
-                depth += 1
-                p2 = nxt_open + 7
-            else:
-                depth -= 1
-                p2 = nxt_close + 8
-                if depth == 0:
-                    end = p2
-                    break
-        texts = ''.join(re.findall(r'<w:t(?:\s[^>]*)?>(.*?)</w:t>', doc[s:end], flags=re.S))
-        if all(k in texts for k in keys):
-            return (s, end)
-        pos = end
-
-
-def _mark_readonly_tables(doc):
-    """平台数据对应的动态表 = 真实只读岛（Word 文档保护 perm 多区间）；
-    表之间的段落间隙 = 可编辑区间。perm 均插在段落内部（OOXML 规范）。
-    项目方 2026-09-01 终审口径：平台录入数据真实不可编辑，其余正文均可编辑。"""
-    spans, pos = [], 0
-    for keys in READONLY_TABLE_KEYS:
-        p2 = 0
-        while True:
-            r = _tbl_span(doc, p2, keys)
-            if not r:
-                break
-            if not any(a < r[1] and r[0] < b for a, b in spans):
-                spans.append(r)
-            p2 = r[1]
-    spans.sort()
-    pid = 1000
-    inserts = [(0, '<w:permStart w:id="%d" w:edGrp="everyone"/>' % pid)]
-    pid += 1
-    for a, b in spans:
-        inserts.append((a, '<w:permEnd w:id="%d"/>' % pid))
-        pid += 1
-        inserts.append((b, '<w:permStart w:id="%d" w:edGrp="everyone"/>' % pid))
-        pid += 1
-    end_body = doc.rfind('</w:body>')
-    inserts.append((end_body, '<w:permEnd w:id="%d"/>' % pid))
-    for pos, txt in sorted(inserts, key=lambda x: -x[0]):
-        doc = doc[:pos] + txt + doc[pos:]
-    return doc
-
-
-def _shade_readonly_tables(doc):
-    """给平台数据对应的动态表（真实只读岛）所有单元格加黄色底纹(FFF2CC)，
-    辅助标识'不可编辑'；其余正文/静态表保持白色(可编辑)。
-    反向(从后往前)替换，避免字符串索引偏移。"""
-    spans = []
-    for keys in READONLY_TABLE_KEYS:
-        p2 = 0
-        while True:
-            r = _tbl_span(doc, p2, keys)
-            if not r:
-                break
-            if not any(a < r[1] and r[0] < b for a, b in spans):
-                spans.append(r)
-            p2 = r[1]
-    spans.sort(reverse=True)
-    for a, b in spans:
-        seg = doc[a:b]
-
-        def _shd(m):
-            tcpr = m.group(0)
-            if "<w:shd" in tcpr:
-                return re.sub(r'w:fill="[^"]*"', 'w:fill="FFF2CC"', tcpr)
-            return tcpr[:-len("</w:tcPr>")] + \
-                '<w:shd w:val="clear" w:color="auto" w:fill="FFF2CC"/></w:tcPr>'
-        seg = re.sub(r"<w:tcPr>.*?</w:tcPr>", _shd, seg, flags=re.S)
-        doc = doc[:a] + seg + doc[b:]
-    return doc
-
-
-def _protect_readonly_zones(docx_path):
-    """真实只读保护 + 只读区黄色底纹（项目方 2026-09-01 终审口径）：
-    1) settings.xml 设文档只读保护(readOnly) + 打开自动更新域；
-    2) 平台录入数据对应的动态表 = 真实只读岛(perm 多区间，不可编辑)，其余正文可编辑；
-    3) 只读岛所有单元格加黄色底纹(FFF2CC) 辅助标识'不可编辑'；可编辑区白色；
-    4) 打印预览/打印时 Word 默认不输出底纹与编辑高亮，呈灰白（领导'打印全灰'）。"""
-    import zipfile as _zf
-    import shutil as _sh
-    bak = docx_path + ".prot.bak"
-    _sh.copy(docx_path, bak)
-    try:
-        z = _zf.ZipFile(bak)
-        names = z.namelist()
-        data = {n: z.read(n) for n in names}
-        z.close()
-        # 1) 只读保护 + 自动更新域
-        st = data["word/settings.xml"].decode("utf-8")
-        if 'w:enforcement="0"' in st:
-            st = st.replace('<w:documentProtection w:enforcement="0"/>',
-                            '<w:documentProtection w:edit="readOnly" w:enforcement="1"/>'
-                            '<w:updateFields w:val="true"/>')
-        elif "<w:documentProtection" not in st:
-            st = st.replace("</w:settings>",
-                            '<w:documentProtection w:edit="readOnly" w:enforcement="1"/>'
-                            '<w:updateFields w:val="true"/></w:settings>')
-        elif "<w:updateFields" not in st:
-            st = st.replace("</w:settings>",
-                            '<w:updateFields w:val="true"/></w:settings>')
-        data["word/settings.xml"] = st.encode("utf-8")
-        # 2) 真实只读岛 perm + 黄色底纹辅助标识
-        doc = data["word/document.xml"].decode("utf-8")
-        doc = _shade_readonly_tables(doc)
-        doc = _mark_readonly_tables(doc)
-        data["word/document.xml"] = doc.encode("utf-8")
-        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
-            for n in names:
-                zo.writestr(n, data[n])
-    except Exception:
-        _sh.copy(bak, docx_path)
-    finally:
-        try:
-            os.remove(bak)
-        except OSError:
-            pass
-
-
-# ===================== 平台数据只读保护（Content Control 方案）=====================
-# 项目方 2026-09-02：10 张平台表整表只读，其余正文/手写表可编辑。
-# 方案：用 w:sdt 内容控件包裹平台表并锁定内容(sdtContentLocked)，不依赖整文档
-# documentProtection，规避此前 perm 注入 body 级导致 Word 空白的问题。
 
 SDP_REQUIRED_PROJECT_FIELDS = {
     "project_name": "软件名称",
@@ -501,359 +507,68 @@ def validate_project_for_sdp(db: Session, project_id: str):
             "生成《软件开发计划》失败：以下关键字段未填写，请先在「项目信息」中补全 —— "
             + "、".join(missing))
 
-
-def _ensure_tbl_center(seg):
-    """对标 R121：确保平台表 tblPr 含 jc=center（表格居中）。
-    注意 CT_TblPr 子元素有 schema 顺序，w:jc 必须排在 w:tblW 之后，否则 Word 可能忽略。"""
-    m = re.search(r'<w:tbl(?: [^>]*)?>', seg)
-    if not m:
-        return seg
-    after = m.end()
-    tp = seg.find('<w:tblPr', after)
-    if tp == -1 or tp > after + 300:
-        return seg[:after] + '<w:tblPr><w:jc w:val="center"/></w:tblPr>' + seg[after:]
-    tpend = seg.find('>', tp)
-    if seg[tpend - 1] == '/':                      # 自闭合 <w:tblPr/>
-        return seg[:tp] + '<w:tblPr><w:jc w:val="center"/></w:tblPr>' + seg[tpend + 1:]
-    if 'w:jc' in seg[tp:tpend]:
-        return seg                                  # 已有对齐设置，不覆盖
-    tw = seg.find('<w:tblW', tp)
-    if tw != -1 and tw < tpend:                     # jc 必须排在 tblW 之后
-        twend = seg.find('/>', tw)
-        if twend != -1:
-            return seg[:twend + 2] + '<w:jc w:val="center"/>' + seg[twend + 2:]
-        twend = seg.find('>', tw)
-        return seg[:twend + 1] + '<w:jc w:val="center"/>' + seg[twend + 1:]
-    return seg[:tpend + 1] + '<w:jc w:val="center"/>' + seg[tpend + 1:]
-
-
-def _wrap_readonly_tables_with_sdt(doc):
-    """用 w:sdt 包裹 READONLY_TABLE_KEYS 命中的平台表（内容锁定，其余可编辑）。
-    同时调用 _ensure_tbl_center 让平台表居中（对标 R121）。"""
-    spans = []
-    for keys in READONLY_TABLE_KEYS:
-        p2 = 0
-        while True:
-            r = _tbl_span(doc, p2, keys)
-            if not r:
-                break
-            if not any(a < r[1] and r[0] < b for a, b in spans):
-                spans.append(r)
-            p2 = r[1]
-    spans.sort(reverse=True)  # 从后往前插，避免索引偏移
-    sid = 1
-    for a, b in spans:
-        seg = _ensure_tbl_center(doc[a:b])
-        repl = ('<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
-                '<w:sdtContent>' % sid) + seg + '</w:sdtContent></w:sdt>'
-        sid += 1
-        doc = doc[:a] + repl + doc[b:]
-    return doc
-
-
-# 项目方 2026-09-02：需删除电子签名图片的人员（模板继承的历史签名，非本项目人员）
-REMOVE_SIGNATURE_USERS = ("马慧芳",)
-
-
-def _remove_signature_images(doc):
-    """删除电子签名图片：descr 含 'USERNAME=<姓名>' 的整个 <w:drawing> 块。"""
-    pat = re.compile(r"<w:drawing>.*?</w:drawing>", re.S)
-
-    def _sub(m):
-        seg = m.group(0)
-        for u in REMOVE_SIGNATURE_USERS:
-            if "USERNAME=" + u in seg:
-                return ""
-        return seg
-
-    return pat.sub(_sub, doc)
-
-
-def _fix_sdtd_version(doc, project_id, doc_version):
-    """模板静态残留的引用文件编号缺版本号（如 R105_SDTD_）→ 补成 R105_SDTD_V1.00。"""
-    if not project_id:
-        return doc
-    ver = (doc_version or "V1.00").strip()
-    pat = re.compile(re.escape(project_id) + r"_SDTD_(?![0-9A-Za-z])")
-    return pat.sub(project_id + "_SDTD_" + ver, doc)
-
-
-# 阶段代码映射（袁总 2026-09-02 定）：F=方案 C=初样 S=正样 D=定型 P=批产
-STAGE_LETTER_MAP = {
-    "方案": "F",
-    "初样": "C",
-    "正样": "S",
-    "定型": "D",
-    "批产": "P",
-}
-
-
-def _balanced_span(s, open_tag, close_tag, start=0):
-    """返回 (起, 止)：从 start 起第一个 open_tag 到其【标签平衡】的 close_tag 之后。
-    用于正确处理嵌套结构（如表格内套表格），避免非贪婪正则在内层就截断导致 XML 失衡。"""
-    i = s.find(open_tag, start)
-    if i < 0:
-        return None
-    depth = 0
-    pos = i
-    while True:
-        no = s.find(open_tag, pos)
-        nc = s.find(close_tag, pos)
-        if nc < 0:
-            return None
-        if 0 <= no < nc:
-            depth += 1
-            pos = no + len(open_tag)
-        else:
-            pos = nc + len(close_tag)
-            depth -= 1
-            if depth == 0:
-                return (i, pos)
-
-
-def _set_cell_text(tc, text):
-    """把表格单元格 tc 的显示文本设为 text：清空所有 w:t，第一个 w:t 写入 text；
-    若单元格无 w:t（空段落），则在其首个段落末尾插入一个 run。"""
-    ws = list(re.finditer(r"<w:t[^>]*>[^<]*</w:t>", tc))
-    if ws:
-        # 先清空除第一个以外的所有 w:t
-        for m in reversed(ws[1:]):
-            tc = (tc[:m.start()]
-                  + re.sub(r"(<w:t[^>]*>)[^<]*(</w:t>)", r"\1\2", m.group(0))
-                  + tc[m.end():])
-        m0 = re.search(r"<w:t[^>]*>[^<]*</w:t>", tc)
-        if m0:
-            tc = (tc[:m0.start()]
-                  + re.sub(r"(<w:t[^>]*>)[^<]*(</w:t>)", r"\1" + text + r"\2", m0.group(0))
-                  + tc[m0.end():])
-    else:
-        tc = tc.replace("</w:p></w:tc>",
-                        "<w:r><w:t>%s</w:t></w:r></w:p></w:tc>" % text, 1)
-    return tc
-
-
-def _apply_header_protection(docx_path, phase):
-    """页眉处理（袁总 2026-09-02）：
-    1) 阶段勾选按平台所选阶段联动——页眉阶段表 行1 只在 phase 对应字母列打 √，其余列清空；
-    2) 阶段表 + 所有含"配置项标识"的段落用 sdt 内容控件锁定（不可编辑）。
-    任何异常回退原文件，保证文档不损坏。"""
-    import zipfile as _zf
-    import shutil as _sh
-    letter = STAGE_LETTER_MAP.get((phase or "").strip(), "")
-    bak = docx_path + ".hdr.bak"
-    _sh.copy(docx_path, bak)
-    try:
-        z = _zf.ZipFile(bak)
-        names = z.namelist()
-        data = {n: z.read(n) for n in names}
-        z.close()
-        sid = 9000
-        for n in names:
-            if not re.match(r"word/header\d+\.xml$", n):
-                continue
-            x = data[n].decode("utf-8")
-
-            # (1) 阶段联动：把行1 的 √ 移到 letter 对应列
-            # 用平衡扫描取第一个表格（嵌套安全）
-            sp = _balanced_span(x, "<w:tbl>", "</w:tbl>")
-            seg = x[sp[0]:sp[1]] if sp else ""
-            if seg and letter:
-                trs = re.findall(r"<w:tr(?:\s[^>]*)?>.*?</w:tr>", seg, re.S)
-                if len(trs) >= 2:
-                    head, row1 = trs[0], trs[1]
-                    # 按【单元格】定位列：取表头行各单元格文本，找 letter 所在的单元格索引
-                    # （不能用"字母在字母列表中的索引"——表头还有 密级/阶段 等占位单元格）
-                    head_tcs = re.findall(r"<w:tc>.*?</w:tc>", head, re.S)
-                    head_texts = []
-                    for htc in head_tcs:
-                        ts = re.findall(r"<w:t[^>]*>([^<]*)</w:t>", htc)
-                        head_texts.append("".join(ts).strip())
-                    if letter in head_texts:
-                        idx = head_texts.index(letter)
-                        tcs = re.findall(r"<w:tc>.*?</w:tc>", row1, re.S)
-                        if idx < len(tcs):
-                            new_tcs = []
-                            for i, tc in enumerate(tcs):
-                                # 清空与填入成对执行：目标列写 √，其余列清空
-                                new_tcs.append(_set_cell_text(tc, "√" if i == idx else ""))
-                            new_row1 = row1
-                            for tc, tc2 in zip(tcs, new_tcs):
-                                new_row1 = new_row1.replace(tc, tc2, 1)
-                            x = x.replace(seg, seg.replace(row1, new_row1, 1), 1)
-
-            # (2) 锁定：阶段表（平衡扫描，嵌套安全）
-            sp2 = _balanced_span(x, "<w:tbl>", "</w:tbl>")
-            if sp2:
-                blk = x[sp2[0]:sp2[1]]
-                sid += 1
-                x = x[:sp2[0]] + (
-                    '<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
-                    '<w:sdtContent>%s</w:sdtContent></w:sdt>' % (sid, blk)
-                ) + x[sp2[1]:]
-
-            # (3) 锁定：含"配置项标识"的段落（平衡扫描）
-            pos = 0
-            while True:
-                ps = _balanced_span(x, "<w:p>", "</w:p>", pos)
-                if not ps:
-                    ps = x.find("<w:p ", pos)
-                    if ps < 0:
-                        break
-                    end = x.find(">", ps)
-                    sp3 = _balanced_span(x[:end + 1] + x[end + 1:], "<w:p>", "</w:p>", ps)
-                    if not sp3:
-                        break
-                    ps = sp3
-                blk = x[ps[0]:ps[1]]
-                if "配置项标识" in blk:
-                    sid += 1
-                    wrapped = (
-                        '<w:sdt w:id="%d"><w:sdtPr><w:lock w:val="sdtContentLocked"/></w:sdtPr>'
-                        '<w:sdtContent>%s</w:sdtContent></w:sdt>' % (sid, blk))
-                    x = x[:ps[0]] + wrapped + x[ps[1]:]
-                    pos = ps[0] + len(wrapped)
-                else:
-                    pos = ps[1]
-                if pos >= len(x):
-                    break
-
-            data[n] = x.encode("utf-8")
-
-        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
-            for n in names:
-                zo.writestr(n, data[n])
-    except Exception:
-        _sh.copy(bak, docx_path)
-    finally:
-        try:
-            os.remove(bak)
-        except OSError:
-            pass
-
-
-def _apply_sdt_readonly(docx_path, project_id=None, doc_version="V1.00"):
-    """对 docx 内平台表加 sdt 内容锁定 + 黄底纹 + 居中（其余不受影响）。
-    同时删除指定人员的电子签名图片、补齐 SDTD 版本号。
-    任何异常都回退原文件，保证文档不损坏。"""
-    import zipfile as _zf
-    import shutil as _sh
-    bak = docx_path + ".sdt.bak"
-    _sh.copy(docx_path, bak)
-    try:
-        z = _zf.ZipFile(bak)
-        names = z.namelist()
-        data = {n: z.read(n) for n in names}
-        z.close()
-        doc = data["word/document.xml"].decode("utf-8")
-        doc = _remove_signature_images(doc)
-        doc = _fix_sdtd_version(doc, project_id, doc_version)
-        doc = _wrap_readonly_tables_with_sdt(doc)
-        # 恢复只读区黄色底纹(FFF2CC)：上一轮换 sdt 方案时漏掉了 _shade_readonly_tables，
-        # 导致"保护还在、颜色没了"。底纹与只读是两件事，必须同时做（项目方 2026-09-02 指出）。
-        doc = _shade_readonly_tables(doc)
-        data["word/document.xml"] = doc.encode("utf-8")
-        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
-            for n in names:
-                zo.writestr(n, data[n])
-    except Exception:
-        _sh.copy(bak, docx_path)
-    finally:
-        try:
-            os.remove(bak)
-        except OSError:
-            pass
-
-
-def _estimate_pages(docx_path):
-    import zipfile as _zf
-    z = _zf.ZipFile(docx_path)
-    xml = z.read("word/document.xml").decode("utf-8")
-    z.close()
-    text = re.sub(r"<[^>]+>", "", xml)
-    return max(1, len(text) // 1500)
-
-
-def _apply_doc_fields(docx_path, total_pages):
-    """项目方 2026-09-02：封面"共 N 页"改为 NUMPAGES 域 + 打开自动刷新。
-    1) settings.xml 加 <w:updateFields w:val="true"/>（Word 打开/打印时自动重算域）；
-    2) 把页数哨兵 %TP% 换成 NUMPAGES 域（w:fldSimple），域结果随文档内容自动更新，
-       不再依赖生成时估算的固定数字。
-    任何异常回退原文件，保证文档不损坏。"""
-    import zipfile as _zf
-    import shutil as _sh
-    bak = docx_path + ".fld.bak"
-    _sh.copy(docx_path, bak)
-    try:
-        z = _zf.ZipFile(bak)
-        names = z.namelist()
-        data = {n: z.read(n) for n in names}
-        z.close()
-        # (1) 打开时自动刷新域
-        if "word/settings.xml" in data:
-            st = data["word/settings.xml"].decode("utf-8")
-            if "<w:updateFields" not in st:
-                st = st.replace("</w:settings>",
-                                '<w:updateFields w:val="true"/></w:settings>')
-                data["word/settings.xml"] = st.encode("utf-8")
-        # (2) 页数哨兵 -> NUMPAGES 域
-        # 注意：%TP% 常与前后文字同在一个 w:t 内（如"共 %TP% 页"），
-        # 不能整元素替换，需把该 run 拆成 [前文字 run] + [域] + [后文字 run]。
-        x = data["word/document.xml"].decode("utf-8")
-        field = ('<w:fldSimple w:instr=" NUMPAGES ">'
-                 '<w:r><w:rPr><w:noProof/></w:rPr><w:t>%d</w:t></w:r>'
-                 '</w:fldSimple>' % total_pages)
-
-        def _tp_sub(m):
-            whole = m.group(0)
-            t = re.search(r"<w:t[^>]*>([^<]*%TP%[^<]*)</w:t>", whole)
-            if not t:
-                return whole
-            inner = t.group(1)
-            pre, post = inner.split("%TP%", 1)
-            rpr = re.search(r"<w:rPr>(.*?)</w:rPr>", whole)
-            rpr_s = rpr.group(1) if rpr else ""
-            run_tpl = '<w:r><w:rPr>%s</w:rPr><w:t xml:space="preserve">%s</w:t></w:r>'
-            out = (run_tpl % (rpr_s, pre)) if pre else ""
-            out += field
-            out += (run_tpl % (rpr_s, post)) if post else ""
-            return out
-
-        if "%TP%" in x:
-            # 注意：run 常带属性(<w:r w:rsidR="...">)，不能锚定无属性的 <w:r>
-            x = re.sub(r"<w:r(?:\s[^>]*)?>(?:(?!</w:r>).)*?%TP%(?:(?!</w:r>).)*?</w:r>",
-                       _tp_sub, x, flags=re.S)
-        x = x.replace("%TP%", str(total_pages))      # 兜底：异常残留
-        data["word/document.xml"] = x.encode("utf-8")
-        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
-            for n in names:
-                zo.writestr(n, data[n])
-    except Exception:
-        _sh.copy(bak, docx_path)
-    finally:
-        try:
-            os.remove(bak)
-        except OSError:
-            pass
-
-
-def _patch_placeholder_in_docx(docx_path, old, new):
-    import zipfile as _zf
-    import shutil as _sh
-    bak = docx_path + ".patch.bak"
-    _sh.copy(docx_path, bak)
-    try:
-        z = _zf.ZipFile(bak)
-        names = z.namelist()
-        data = {n: z.read(n) for n in names}
-        z.close()
-        doc = data["word/document.xml"].decode("utf-8")
-        doc = doc.replace(old, new)
-        data["word/document.xml"] = doc.encode("utf-8")
-        with _zf.ZipFile(docx_path, "w", _zf.ZIP_DEFLATED) as zo:
-            for n in names:
-                zo.writestr(n, data[n])
-    finally:
-        try:
-            os.remove(bak)
-        except OSError:
-            pass
+# 只读锁定白名单（项目方 2026-09-02 口径）：
+# 只有这些占位符填入的值不可编辑（封面编号/型号/软件名称/版本/单位/表单号/
+# 配置项标识/签署日期/引用文件编号/SVN 地址等核心字段）；
+# 其余由数据库读入的描述性正文（系统概述、IAP 概述、资源描述等）保持可编辑。
+# 说明：sys.short(型号)、org.*(单位)、ref.*(引用文件)、cm.svn_*(SVN 地址) 等
+# 在正文段落中大量出现，若锁定会让"系统概述/资源描述"等正文不可编辑，
+# 与"描述性正文可编辑"的要求冲突，故【不列入】锁定白名单。
+LOCKED_PLACEHOLDER_KEYS = (
+    "{{meta.project_id}}",
+    "{{meta.doc_version}}",
+    "{{meta.doc_ver_tag}}",
+    # 袁总 2026-09-03：签字页日期 {{meta.approve_date}}（20250315）改为【可编辑】
+    # （签署日期需打印后手签/盖章前按实际日期调整，属人工填写项，不再锁定）。
+    "{{meta.total_pages}}",
+    "{{sys.software_full}}",
+    "{{sys.name}}",
+    # 袁总 2026-09-03（第三十九轮）：文档中所有 CB-B/DSQ-1AG/R105/软件名+
+    # 软件研制任务书 均不可编辑——sys.short(型号) 加回锁定（此前第三十七轮
+    # 因"正文大量出现锁太多"移除，袁总本轮明确要求全部锁定，以袁总最新指令为准）。
+    "{{sys.short}}",
+    # 袁总 2026-09-03：1.1 b) 配置项数量与清单（从 Project.cfg_items 读）锁定
+    "{{sys.cfg_count}}",
+    "{{sys.cfg_items}}",
+    # 袁总 2026-09-03：引用文件表中"《软件名》软件研制任务书"整句锁定
+    # （模板已合并为单占位符 {{sys.taskbook}}，值=软件名+软件研制任务书）
+    "{{sys.taskbook}}",
+    "{{header.form_no}}",
+    # 项目方 2026-09-02：检视小组（5.7.2.5 代码审查人员安排）两人来自平台
+    # projects 表签署角色字段（role.author=编制人、role.requirement=需求人员），
+    # 替换后 sdt 锁定不可编辑。人名属签署类字段，锁定符合"签署信息不可编辑"口径。
+    "{{role.author}}",
+    "{{role.requirement}}",
+    # 项目方 2026-09-02：所有"与人相关"的占位符从 Project.* 读，替换后 sdt 锁定，
+    # 文档中不可手改（测试人员/评审/QA/CM 等角色姓名 = 签署类，锁定语义）。
+    "{{role.ccb}}",
+    "{{role.designer}}",
+    "{{role.reviewer}}",
+    "{{role.reviewer_2}}",
+    "{{role.reviewer_3}}",
+    "{{role.tester}}",
+    "{{role.qa}}",
+    "{{role.config_manager}}",
+    "{{role.org_config_manager}}",
+    "{{role.coder}}",
+    "{{role.measure}}",
+    "{{role.proj_lead}}",
+    "{{role.sys_eng}}",
+    # 项目方 2026-09-02：项目相关方（1.2.3 章节）6 行 org.* 从 Project.* 读，
+    # 替换后 sdt 锁定——单位/现场/部门名均属元数据，应由平台统管。
+    "{{org.dev_dept}}",
+    "{{org.customer_dept}}",
+    "{{org.user_dept}}",
+    "{{org.maintainer}}",
+    "{{org.site}}",
+    "{{org.plan_site}}",
+    # 袁总 2026-09-03：表 11 软件配置管理库三库地址——SVN URL 由平台统管。
+    # 注：{{meta.project_id}} 不在此处锁定（封面/页眉/签署页均用，全锁会破坏太多区域），
+    # 通过 READONLY_TABLE_KEYS ["配置库路径"] 让表 11 整表 sdt 锁定即可。
+    "{{cm.svn_trunk}}",
+    "{{cm.svn_branches}}",
+    "{{cm.svn_tags}}",
+    # 袁总 2026-09-03：{{sys.short}}(型号 CB-B/DSQ-1AG) 按本文件 700-702 行口径
+    # 【不列入】锁定白名单——型号在正文(1.1/系统概述/项目概述等)大量出现，
+    # 全锁会让正文不可编辑；项目相关方(1.2.3)那一处由 org.* 单独锁负责。
+)

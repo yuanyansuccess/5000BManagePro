@@ -310,43 +310,40 @@ function ppEstPanel() {
 
 // 注：Delphi 估算收敛表（ppEstLoad/ppEstSave/ppEstDel/ppEstSwitchRound）已按项目方要求删除；
 //     est_items 数据与后端接口保留（如需恢复，还原上述四个函数 + ppEstPanel 中的表格区块即可）。
-function ppCodeScaleLoad() {
-  var tb = document.getElementById('codescale-tbody');
-  if (!tb) return;
-  Api.listCodeScale(Api.curProjectId()).then(function (r) {
-    var rows = (r && r.data) || [];
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;">暂无构件，点「新增构件」录入</td></tr>'; return; }
-    tb.innerHTML = rows.map(function (x) {
-      return '<tr><td><input data-f="comp" data-id="' + x.id + '" value="' + (x.comp || '') + '" style="width:100%;min-width:160px"></td>' +
-        '<td><input data-f="est_loc" data-id="' + x.id + '" value="' + (x.est_loc || 0) + '" style="width:100%;min-width:100px"></td>' +
-        '<td><input data-f="reuse_loc" data-id="' + x.id + '" value="' + (x.reuse_loc || 0) + '" style="width:100%;min-width:100px"></td>' +
-        '<td><button class="btn ghost sm" onclick="ppCodeScaleSave(' + x.id + ')">保存</button> <button class="btn ghost sm" onclick="ppCodeScaleDel(' + x.id + ')">删</button></td></tr>';
-    }).join('');
-  }).catch(function (e) { tb.innerHTML = '<tr><td colspan="4" style="color:#e74c3c;">加载失败：' + (e.message || e) + '</td></tr>'; });
-}
-function ppCodeScaleAdd() {
-  var html = '<div class="modal-mask" onclick="if(event.target===this)this.remove()"><div class="modal modal-lg"><div class="modal-hd">新增构件</div><div class="modal-bd grid2">' +
-    '<div class="field"><label>构件/模块</label><input id="cs-comp"></div><div class="field"><label>预计规模(行)</label><input id="cs-est" type="number" value="0"></div>' +
-    '<div class="field"><label>复用规模(行)</label><input id="cs-reuse" type="number" value="0"></div>' +
-    '<div id="cs-msg" class="span2" style="color:#e74c3c;font-size:13px;min-height:16px;"></div></div>' +
-    '<div class="modal-ft"><button class="btn ghost" onclick="this.closest(\'.modal-mask\').remove()">取消</button><button class="btn primary" onclick="ppCodeScaleSaveNew()">保存</button></div></div></div>';
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-function ppCodeScaleSaveNew() {
-  var msg = document.getElementById('cs-msg');
-  Api.createCodeScale(Api.curProjectId(), { comp: document.getElementById('cs-comp').value.trim(), est_loc: +document.getElementById('cs-est').value || 0, reuse_loc: +document.getElementById('cs-reuse').value || 0 })
-    .then(function () { document.querySelector('.modal-mask').remove(); ppCodeScaleLoad(); })
-    .catch(function (e) { msg.textContent = '保存失败：' + (e.message || e); });
-}
-function ppCodeScaleSave(id) {
-  var get = function (f) { return document.querySelector('#codescale-tbody [data-id="' + id + '"][data-f="' + f + '"]').value.trim(); };
-  Api.updateCodeScale(Api.curProjectId(), id, { comp: get('comp'), est_loc: +get('est_loc') || 0, reuse_loc: +get('reuse_loc') || 0 })
-    .then(function () { ppCodeScaleLoad(); }).catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
-function ppCodeScaleDel(id) {
-  if (!confirm('确认删除？')) return;
-  Api.deleteCodeScale(Api.curProjectId(), id).then(function () { ppCodeScaleLoad(); }).catch(function (e) { alert('删除失败：' + (e.message || e)); });
-}
+
+// ===== 通用 CRUD 工厂实例（代码规模/硬件/软件/文档规模四组，收敛自手抄五件套）=====
+var ppCodeScaleCrud = crudTable({
+  key: 'ppCodeScale', tbody: 'codescale-tbody', colspan: 4,
+  empty: '暂无构件，点「新增构件」录入',
+  api: {
+    list: function (pid) { return Api.listCodeScale(pid); },
+    create: function (pid, p) { return Api.createCodeScale(pid, p); },
+    update: function (pid, id, p) { return Api.updateCodeScale(pid, id, p); },
+    del: function (pid, id) { return Api.deleteCodeScale(pid, id); }
+  },
+  cols: [
+    { f: 'comp', w: '100%;min-width:160px' },
+    { f: 'est_loc', w: '100%;min-width:100px', num: true },
+    { f: 'reuse_loc', w: '100%;min-width:100px', num: true }
+  ],
+  afterChange: function () { return ppCodeScaleLoad(); },
+  notify: 'alert',
+  btn: { save: 'btn ghost sm', del: 'btn ghost sm', delText: '删' },
+  dialog: {
+    title: '新增构件', layout: 'grid2', msgId: 'cs-msg',
+    fields: [
+      { id: 'cs-comp', label: '构件/模块' },
+      { id: 'cs-est', label: '预计规模(行)', type: 'number', value: 0 },
+      { id: 'cs-reuse', label: '复用规模(行)', type: 'number', value: 0 }
+    ],
+    payload: function (g) { return { comp: g('cs-comp'), est_loc: +g('cs-est') || 0, reuse_loc: +g('cs-reuse') || 0 }; }
+  }
+});
+function ppCodeScaleLoad() { ppCodeScaleCrud.loadPpStyle(); }
+function ppCodeScaleAdd() { ppCodeScaleCrud.addDialog(); }
+function ppCodeScaleSaveNew() { ppCodeScaleCrud.saveNew(); }
+function ppCodeScaleSave(id) { ppCodeScaleCrud.save(id); }
+function ppCodeScaleDel(id) { ppCodeScaleCrud.del(id); }
 
 // 风险与资源（A11 风险 + 硬件 + 软件）
 // 风险表字段完全对齐 R121 附录A 项目风险管理表（4 行表头 + 15 列），分项目，当前项目从配置读
@@ -568,88 +565,76 @@ function ppRiskDel(riskId) {
     .catch(function (e) { alert('删除失败：' + (e.message || e)); });
 }
 
-// ===== 硬件资源（按项目维度，对应 {{table.hw_env_res}}）=====
-function ppHwLoad() {
-  var tb = document.getElementById('hw-tbody');
-  if (!tb) return;
-  Api.listHwRes(Api.curProjectId()).then(function (r) {
-    var rows = (r && r.data) || [];
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无硬件资源，点「新增硬件」录入</td></tr>'; return; }
-    tb.innerHTML = rows.map(function (x) {
-      return '<tr><td><input data-f="name" data-id="' + x.id + '" value="' + (x.name || '') + '" style="width:100%;min-width:90px"></td>' +
-        '<td><input data-f="spec" data-id="' + x.id + '" value="' + (x.spec || '') + '" style="width:100%;min-width:110px"></td>' +
-        '<td><input data-f="usage" data-id="' + x.id + '" value="' + (x.usage || '') + '" style="width:100%;min-width:140px"></td>' +
-        '<td><input data-f="owner" data-id="' + x.id + '" value="' + (x.owner || '') + '" style="width:100%;min-width:80px"></td>' +
-        '<td><button class="btn ghost sm" onclick="ppHwSave(' + x.id + ')">保存</button> <button class="btn ghost sm" onclick="ppHwDel(' + x.id + ')">删</button></td></tr>';
-    }).join('');
-  }).catch(function (e) { tb.innerHTML = '<tr><td colspan="5" style="color:#e74c3c;">加载失败：' + (e.message || e) + '</td></tr>'; });
-}
-function ppHwAdd() {
-  var html = '<div class="modal-mask" onclick="if(event.target===this)this.remove()"><div class="modal modal-lg"><div class="modal-hd">新增硬件资源</div><div class="modal-bd grid2">' +
-    '<div class="field"><label>名称</label><input id="hw-name"></div><div class="field"><label>规格/型号</label><input id="hw-spec"></div>' +
-    '<div class="field"><label>用途</label><input id="hw-use"></div><div class="field"><label>责任人</label><input id="hw-owner"></div>' +
-    '<div id="hw-msg" class="span2" style="color:#e74c3c;font-size:13px;min-height:16px;"></div></div>' +
-    '<div class="modal-ft"><button class="btn ghost" onclick="this.closest(\'.modal-mask\').remove()">取消</button><button class="btn primary" onclick="ppHwSaveNew()">保存</button></div></div></div>';
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-function ppHwSaveNew() {
-  var pid = Api.curProjectId();
-  var msg = document.getElementById('hw-msg');
-  Api.createHwRes(pid, { name: document.getElementById('hw-name').value.trim(), spec: document.getElementById('hw-spec').value.trim(), usage: document.getElementById('hw-use').value.trim(), owner: document.getElementById('hw-owner').value.trim() })
-    .then(function () { document.querySelector('.modal-mask').remove(); ppHwLoad(); })
-    .catch(function (e) { msg.textContent = '保存失败：' + (e.message || e); });
-}
-function ppHwSave(id) {
-  var tr = document.querySelector('#hw-tbody tr'); // 仅定位，真正按 data-id 找输入
-  var get = function (f) { return document.querySelector('#hw-tbody [data-id="' + id + '"][data-f="' + f + '"]').value.trim(); };
-  Api.updateHwRes(Api.curProjectId(), id, { name: get('name'), spec: get('spec'), usage: get('usage'), owner: get('owner') })
-    .then(function () { ppHwLoad(); }).catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
-function ppHwDel(id) {
-  if (!confirm('确认删除？')) return;
-  Api.deleteHwRes(Api.curProjectId(), id).then(function () { ppHwLoad(); }).catch(function (e) { alert('删除失败：' + (e.message || e)); });
-}
+// ===== 硬件/软件资源（按项目维度，对应 {{table.hw_env_res}}/{{table.sw_env_res}}）=====
+var ppHwCrud = crudTable({
+  key: 'ppHw', tbody: 'hw-tbody', colspan: 5,
+  empty: '暂无硬件资源，点「新增硬件」录入',
+  api: {
+    list: function (pid) { return Api.listHwRes(pid); },
+    create: function (pid, p) { return Api.createHwRes(pid, p); },
+    update: function (pid, id, p) { return Api.updateHwRes(pid, id, p); },
+    del: function (pid, id) { return Api.deleteHwRes(pid, id); }
+  },
+  cols: [
+    { f: 'name', w: '100%;min-width:90px' },
+    { f: 'spec', w: '100%;min-width:110px' },
+    { f: 'usage', w: '100%;min-width:140px' },
+    { f: 'owner', w: '100%;min-width:80px' }
+  ],
+  afterChange: function () { return ppHwLoad(); },
+  notify: 'alert',
+  btn: { save: 'btn ghost sm', del: 'btn ghost sm', delText: '删' },
+  dialog: {
+    title: '新增硬件资源', layout: 'grid2', msgId: 'hw-msg',
+    fields: [
+      { id: 'hw-name', label: '名称' },
+      { id: 'hw-spec', label: '规格/型号' },
+      { id: 'hw-use', label: '用途' },
+      { id: 'hw-owner', label: '责任人' }
+    ],
+    payload: function (g) { return { name: g('hw-name'), spec: g('hw-spec'), usage: g('hw-use'), owner: g('hw-owner') }; }
+  }
+});
+function ppHwLoad() { ppHwCrud.loadPpStyle(); }
+function ppHwAdd() { ppHwCrud.addDialog(); }
+function ppHwSaveNew() { ppHwCrud.saveNew(); }
+function ppHwSave(id) { ppHwCrud.save(id); }
+function ppHwDel(id) { ppHwCrud.del(id); }
 
-// ===== 软件资源（按项目维度，对应 {{table.sw_env_res}}）=====
-function ppSwLoad() {
-  var tb = document.getElementById('sw-tbody');
-  if (!tb) return;
-  Api.listSwRes(Api.curProjectId()).then(function (r) {
-    var rows = (r && r.data) || [];
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无软件资源，点「新增软件」录入</td></tr>'; return; }
-    tb.innerHTML = rows.map(function (x) {
-      return '<tr><td><input data-f="name" data-id="' + x.id + '" value="' + (x.name || '') + '" style="width:100%;min-width:90px"></td>' +
-        '<td><input data-f="spec" data-id="' + x.id + '" value="' + (x.spec || '') + '" style="width:100%;min-width:110px"></td>' +
-        '<td><input data-f="usage" data-id="' + x.id + '" value="' + (x.usage || '') + '" style="width:100%;min-width:140px"></td>' +
-        '<td><input data-f="owner" data-id="' + x.id + '" value="' + (x.owner || '') + '" style="width:100%;min-width:80px"></td>' +
-        '<td><button class="btn ghost sm" onclick="ppSwSave(' + x.id + ')">保存</button> <button class="btn ghost sm" onclick="ppSwDel(' + x.id + ')">删</button></td></tr>';
-    }).join('');
-  }).catch(function (e) { tb.innerHTML = '<tr><td colspan="5" style="color:#e74c3c;">加载失败：' + (e.message || e) + '</td></tr>'; });
-}
-function ppSwAdd() {
-  var html = '<div class="modal-mask" onclick="if(event.target===this)this.remove()"><div class="modal modal-lg"><div class="modal-hd">新增软件资源</div><div class="modal-bd grid2">' +
-    '<div class="field"><label>名称</label><input id="sw-name"></div><div class="field"><label>版本/型号</label><input id="sw-spec"></div>' +
-    '<div class="field"><label>用途</label><input id="sw-use"></div><div class="field"><label>责任人</label><input id="sw-owner"></div>' +
-    '<div id="sw-msg" class="span2" style="color:#e74c3c;font-size:13px;min-height:16px;"></div></div>' +
-    '<div class="modal-ft"><button class="btn ghost" onclick="this.closest(\'.modal-mask\').remove()">取消</button><button class="btn primary" onclick="ppSwSaveNew()">保存</button></div></div></div>';
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-function ppSwSaveNew() {
-  var pid = Api.curProjectId();
-  var msg = document.getElementById('sw-msg');
-  Api.createSwRes(pid, { name: document.getElementById('sw-name').value.trim(), spec: document.getElementById('sw-spec').value.trim(), usage: document.getElementById('sw-use').value.trim(), owner: document.getElementById('sw-owner').value.trim() })
-    .then(function () { document.querySelector('.modal-mask').remove(); ppSwLoad(); })
-    .catch(function (e) { msg.textContent = '保存失败：' + (e.message || e); });
-}
-function ppSwSave(id) {
-  var get = function (f) { return document.querySelector('#sw-tbody [data-id="' + id + '"][data-f="' + f + '"]').value.trim(); };
-  Api.updateSwRes(Api.curProjectId(), id, { name: get('name'), spec: get('spec'), usage: get('usage'), owner: get('owner') })
-    .then(function () { ppSwLoad(); }).catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
-function ppSwDel(id) {
-  if (!confirm('确认删除？')) return;
-  Api.deleteSwRes(Api.curProjectId(), id).then(function () { ppSwLoad(); }).catch(function (e) { alert('删除失败：' + (e.message || e)); });
-}
+var ppSwCrud = crudTable({
+  key: 'ppSw', tbody: 'sw-tbody', colspan: 5,
+  empty: '暂无软件资源，点「新增软件」录入',
+  api: {
+    list: function (pid) { return Api.listSwRes(pid); },
+    create: function (pid, p) { return Api.createSwRes(pid, p); },
+    update: function (pid, id, p) { return Api.updateSwRes(pid, id, p); },
+    del: function (pid, id) { return Api.deleteSwRes(pid, id); }
+  },
+  cols: [
+    { f: 'name', w: '100%;min-width:90px' },
+    { f: 'spec', w: '100%;min-width:110px' },
+    { f: 'usage', w: '100%;min-width:140px' },
+    { f: 'owner', w: '100%;min-width:80px' }
+  ],
+  afterChange: function () { return ppSwLoad(); },
+  notify: 'alert',
+  btn: { save: 'btn ghost sm', del: 'btn ghost sm', delText: '删' },
+  dialog: {
+    title: '新增软件资源', layout: 'grid2', msgId: 'sw-msg',
+    fields: [
+      { id: 'sw-name', label: '名称' },
+      { id: 'sw-spec', label: '版本/型号' },
+      { id: 'sw-use', label: '用途' },
+      { id: 'sw-owner', label: '责任人' }
+    ],
+    payload: function (g) { return { name: g('sw-name'), spec: g('sw-spec'), usage: g('sw-use'), owner: g('sw-owner') }; }
+  }
+});
+function ppSwLoad() { ppSwCrud.loadPpStyle(); }
+function ppSwAdd() { ppSwCrud.addDialog(); }
+function ppSwSaveNew() { ppSwCrud.saveNew(); }
+function ppSwSave(id) { ppSwCrud.save(id); }
+function ppSwDel(id) { ppSwCrud.del(id); }
 
 // 文档规模估算
 function ppDocScale() {
@@ -661,47 +646,53 @@ function ppDocScale() {
   return h;
 }
 // 文档规模按项目维度加载（对应 {{table.doc_scale_est}}/{{table.doc_scale_reuse}}）；标题动态显示类数/合计页数
+var ppDocScaleCrud = crudTable({
+  key: 'ppDocScale', tbody: 'docscale-tbody', colspan: 5,
+  empty: '暂无文档，点「新增文档」录入',
+  api: {
+    list: function (pid) { return Api.listDocScale(pid); },
+    create: function (pid, p) { return Api.createDocScale(pid, p); },
+    update: function (pid, id, p) { return Api.updateDocScale(pid, id, p); },
+    del: function (pid, id) { return Api.deleteDocScale(pid, id); }
+  },
+  cols: [
+    { f: 'code', w: '100%;min-width:70px' },
+    { f: 'name', w: '100%;min-width:160px' },
+    { f: 'pages_new', w: '100%;min-width:80px', num: true },
+    { f: 'pages_reuse', w: '100%;min-width:80px', num: true }
+  ],
+  afterChange: function () { return ppDocScaleLoad(); },
+  notify: 'alert',
+  btn: { save: 'btn ghost sm', del: 'btn ghost sm', delText: '删' },
+  dialog: {
+    title: '新增文档', layout: 'grid2', msgId: 'ds-msg',
+    fields: [
+      { id: 'ds-code', label: '代号' },
+      { id: 'ds-name', label: '文档名称' },
+      { id: 'ds-new', label: '新开发(页)', type: 'number', value: 0 },
+      { id: 'ds-reuse', label: '复用(页)', type: 'number', value: 0 }
+    ],
+    payload: function (g) { return { code: g('ds-code'), name: g('ds-name'), pages_new: +g('ds-new') || 0, pages_reuse: +g('ds-reuse') || 0 }; }
+  }
+});
+// 标题动态统计为本页特有，故 load 不走工厂默认（渲染数据复用工厂 state）
 function ppDocScaleLoad() {
   var tb = document.getElementById('docscale-tbody');
   if (!tb) return;
   Api.listDocScale(Api.curProjectId()).then(function (r) {
     var rows = (r && r.data) || [];
+    ppDocScaleCrud.state.items = rows;
     var title = document.getElementById('docscale-title');
     if (title) title.textContent = '文档规模估算（共 ' + rows.length + ' 类 · 合计 ' +
       rows.reduce(function (s, x) { return s + (+x.pages_new || 0); }, 0) + ' 页）';
     if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无文档，点「新增文档」录入</td></tr>'; return; }
-    tb.innerHTML = rows.map(function (x) {
-      return '<tr><td><input data-f="code" data-id="' + x.id + '" value="' + (x.code || '') + '" style="width:100%;min-width:70px"></td>' +
-        '<td><input data-f="name" data-id="' + x.id + '" value="' + (x.name || '') + '" style="width:100%;min-width:160px"></td>' +
-        '<td><input data-f="pages_new" data-id="' + x.id + '" value="' + (x.pages_new || 0) + '" style="width:100%;min-width:80px"></td>' +
-        '<td><input data-f="pages_reuse" data-id="' + x.id + '" value="' + (x.pages_reuse || 0) + '" style="width:100%;min-width:80px"></td>' +
-        '<td><button class="btn ghost sm" onclick="ppDocScaleSave(' + x.id + ')">保存</button> <button class="btn ghost sm" onclick="ppDocScaleDel(' + x.id + ')">删</button></td></tr>';
-    }).join('');
+    ppDocScaleCrud.renderRows();
   }).catch(function (e) { tb.innerHTML = '<tr><td colspan="5" style="color:#e74c3c;">加载失败：' + (e.message || e) + '</td></tr>'; });
 }
-function ppDocScaleAdd() {
-  var html = '<div class="modal-mask" onclick="if(event.target===this)this.remove()"><div class="modal modal-lg"><div class="modal-hd">新增文档</div><div class="modal-bd grid2">' +
-    '<div class="field"><label>代号</label><input id="ds-code"></div><div class="field"><label>文档名称</label><input id="ds-name"></div>' +
-    '<div class="field"><label>新开发(页)</label><input id="ds-new" type="number" value="0"></div><div class="field"><label>复用(页)</label><input id="ds-reuse" type="number" value="0"></div>' +
-    '<div id="ds-msg" class="span2" style="color:#e74c3c;font-size:13px;min-height:16px;"></div></div>' +
-    '<div class="modal-ft"><button class="btn ghost" onclick="this.closest(\'.modal-mask\').remove()">取消</button><button class="btn primary" onclick="ppDocScaleSaveNew()">保存</button></div></div></div>';
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-function ppDocScaleSaveNew() {
-  var msg = document.getElementById('ds-msg');
-  Api.createDocScale(Api.curProjectId(), { code: document.getElementById('ds-code').value.trim(), name: document.getElementById('ds-name').value.trim(), pages_new: +document.getElementById('ds-new').value || 0, pages_reuse: +document.getElementById('ds-reuse').value || 0 })
-    .then(function () { document.querySelector('.modal-mask').remove(); ppDocScaleLoad(); })
-    .catch(function (e) { msg.textContent = '保存失败：' + (e.message || e); });
-}
-function ppDocScaleSave(id) {
-  var get = function (f) { return document.querySelector('#docscale-tbody [data-id="' + id + '"][data-f="' + f + '"]').value.trim(); };
-  Api.updateDocScale(Api.curProjectId(), id, { code: get('code'), name: get('name'), pages_new: +get('pages_new') || 0, pages_reuse: +get('pages_reuse') || 0 })
-    .then(function () { ppDocScaleLoad(); }).catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
-function ppDocScaleDel(id) {
-  if (!confirm('确认删除？')) return;
-  Api.deleteDocScale(Api.curProjectId(), id).then(function () { ppDocScaleLoad(); }).catch(function (e) { alert('删除失败：' + (e.message || e)); });
-}
+function ppDocScaleAdd() { ppDocScaleCrud.addDialog(); }
+function ppDocScaleSaveNew() { ppDocScaleCrud.saveNew(); }
+function ppDocScaleSave(id) { ppDocScaleCrud.save(id); }
+function ppDocScaleDel(id) { ppDocScaleCrud.del(id); }
 
 // 利益相关方（按项目维度，对应 {{table.stakeholders}}/{{table.stakeholder_plan}}）
 function ppStakeTab() {
@@ -814,5 +805,4 @@ function ppStakeSaveAll() {
     });
   });
 }
-/* 操作栏按钮（占位，已废弃，保留 ppSvnCommit 供其他页调用） */
-function ppSvnCommit(no) { alert('已同步模块 ' + no + ' 到 SVN（示例）'); }
+

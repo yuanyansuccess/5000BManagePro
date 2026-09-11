@@ -49,7 +49,24 @@ class ProjectMember(Base):
     no = Column(String(32))                            # 人员编号
     svn = Column(String(255))                          # SVN 个人路径
     auth = Column(String(128))                         # 权限/职责范围
+    skill_req = Column(String(255))                    # 技术素质要求 -> 表#23「人力资源表」
+    join_project = Column(String(64))                  # 参加项目（R105 关联）
+    period = Column(String(64))                        # 时段，如 2024-03~2024-08
+    effort_pct = Column(String(16))                    # 投入精力（%）
     seq = Column(Integer, default=0)                   # 排序
+
+
+class OrgChart(Base):
+    """组织机构表（PP 7.2 项目组织）：对标 R121 表29。按项目维度隔离。
+    列：组织机构/角色 | 人员（代表） | 职责。
+    数据来自平台录入（公司级组织 + 项目角色），文档中 sdt 锁定不可编辑。"""
+    __tablename__ = "org_chart"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(String(32), nullable=False, default="R105")
+    org_role = Column(String(128), nullable=False)      # 组织机构/角色，如 公司配置管理组
+    representative = Column(String(64))                 # 人员（代表），如 廖建英
+    duty = Column(Text)                                 # 职责
+    seq = Column(Integer, default=0)                    # 排序
 
 
 class EstItem(Base):
@@ -160,11 +177,17 @@ class Nonconformity(Base):
 
 
 class ConfigItem(Base):
-    """配置项（CM）：A51~A59，ci_id 唯一键"""
+    """配置项（CM）：A51~A59。
+    复合主键 (project_id, baseline, ci_id)：同一 ci_id 可同时属于多个基线
+    （如 R105_SDTD_V1.00.00 既在功能基线也在分配/产品基线）。按项目维度隔离。"""
     __tablename__ = "config_items"
-    ci_id = Column(String(64), primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(String(32), nullable=False, default="R105")
+    ci_id = Column(String(64), nullable=False)
     name = Column(String(255), nullable=False)
-    baseline = Column(String(64))
+    baseline = Column(String(64))                      # 基线类别：功能基线/分配基线/产品基线
+    baseline_name = Column(String(64))                 # 基线名称：R105 / R105_0201 / R105_0202
+    baseline_id = Column(String(64))                   # 基线标识：R105_JG_V1.00 等
     status = Column(String(16), default="草稿")
     path = Column(String(255))
 
@@ -226,6 +249,18 @@ class Project(Base):
     measure = Column(String(64))                         # 测量分析人员 -> {{role.measure}}
     proj_lead = Column(String(64))                       # 项目负责人 -> {{role.proj_lead}}
     sys_eng = Column(String(64))                         # 系统工程组 -> {{role.sys_eng}}
+    # ===== 项目相关方扩展字段（1.2.3 项目相关方，对标 R121）=====
+    # 项目方 2026-09-02：项目相关方 6 行 org.* 占位符必须从 Project 表读取，
+    # 并在文档中 sdt 锁定不可编辑。当前 Project.org 已是承研单位；
+    # 增设 org.maintainer / org.site / org.plan_site 对应的 4 个字段（user_dept 共用 customer_dept）。
+    maintainer = Column(String(128))                     # 项目保障机构 -> {{org.maintainer}}
+    site = Column(String(128))                           # 项目当前运行现场 -> {{org.site}}
+    plan_site = Column(String(128))                      # 项目计划运行现场 -> {{org.plan_site}}
+    # 袁总 2026-09-03（第三十三轮）：软件配置项清单（1.1 标识章节 b）动态化。
+    # JSON 数组字符串：[{"name":"终点/轮载开关模拟器驱动软件","code":"R105_0201"},
+    #                  {"name":"IAP下位机软件","code":"R105_0202"}]
+    # 新建/修改项目时可增删配置项行，文档 1.1 章节按 {{sys.cfg_count}}/{{sys.cfg_items}} 注入。
+    cfg_items = Column(Text)                             # 软件配置项清单 JSON -> {{sys.cfg_items}}
     # ===== 开发环境（A.4.1 开发环境资源，对应 {{hw.*}}/{{sw.*}}）=====
     hw_ide_name = Column(String(64))                     # 开发工具链名称 -> {{hw.ide_name}}
     hw_mcu_model = Column(String(64))                    # 目标机处理器型号 -> {{hw.mcu_model}}
@@ -413,6 +448,24 @@ class ClientWatch(Base):
 
 
 # ===== SVN 配置（设置页可配，存库，项目方确认）=====
+class ProjectSoftware(Base):
+    """项目软件标识号（【一对多】：一个项目可有多个软件/配置项）。
+
+    袁总 2026-09-02：新建/修改项目时维护"软件标识号"，使
+    前端录入 = 数据库 = 导出文档 三者对应一致。
+    例：R105 有两个软件 —— R105_0201(终点/轮载开关模拟器驱动软件)、
+        R105_0202(CB-B/DSQ-1AG IAP下位机软件)。
+    """
+    __tablename__ = "project_software"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(String(32), nullable=False, default="R105")   # 所属项目代号
+    software_id = Column(String(64), nullable=False)                   # 软件标识号（如 R105_0201）
+    software_name = Column(String(128), nullable=True)                 # 软件名称
+    seq = Column(Integer, default=0)                                   # 显示排序
+    remark = Column(String(255), nullable=True)                        # 备注
+
+
 class SvnRepoConfig(Base):
     """SVN 仓库配置（按项目）。统一存库，设置页可配。"""
     __tablename__ = "svn_repo_config"

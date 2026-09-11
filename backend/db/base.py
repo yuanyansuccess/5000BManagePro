@@ -58,3 +58,25 @@ class BaseDao:
         db.delete(obj)
         db.commit()
         return True
+
+    # ===== 项目维度通用查询（排序字段由子类 order_fields 声明，默认按 id）=====
+    @classmethod
+    def list_by_project(cls, db: Session, project_id: str) -> List[object]:
+        order = getattr(cls, "order_fields", None) or (cls.model.id,)
+        return db.query(cls.model).filter(
+            cls.model.project_id == project_id
+        ).order_by(*order).all()
+
+    @classmethod
+    def delete_by_project(cls, db: Session, project_id: str) -> None:
+        db.query(cls.model).filter(cls.model.project_id == project_id).delete()
+        db.commit()
+
+    @classmethod
+    def get_in_project(cls, db: Session, pk_value: Any, project_id: str) -> Optional[object]:
+        """主键+项目双条件查询（防跨项目越权改动）。"""
+        pk_field = getattr(cls, "pk_field", "id")
+        return db.query(cls.model).filter(
+            getattr(cls.model, pk_field) == pk_value,
+            cls.model.project_id == project_id,
+        ).first()

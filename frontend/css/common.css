@@ -419,3 +419,9 @@ select {
 .btn.danger:hover { background: var(--danger-deep); }
 .btn.primary { background: var(--primary); }
 .btn.primary:hover { background: var(--primary-hover); }
+
+/* 版本徽标（模板中心/基础数据/告警等页通用） */
+.ver-badge {
+  display: inline-block; min-width: 22px; padding: 2px 8px; border-radius: 8px;
+  background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 700; text-align: center;
+}

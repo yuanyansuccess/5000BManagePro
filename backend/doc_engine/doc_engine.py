@@ -9,12 +9,7 @@ GJB5000B 文档引擎（高内聚核心模块）
 
 对外公开类：
     DocParser          文档解析（读取正文/表格/占位符）
-    DocPageCounter     页数统计
-    DocRangeProtector  文档范围保护（只读/编辑区域）
-    DataResolver       解析用户填写的 JSON/YAML 数据
-    TemplateMiner      从源文档采集可复用片段（表/页眉）
     WordInjector       Word 占位符灌装
-    ExcelInjector      Excel 占位符灌装
     SdpPlaceholderBuilder  生成 SDP 占位符模板（REPLACEMENTS 映射 + 生成函数）
     SdpFiller          SDP 正式文档灌装（fill_scalar + 整表替换）
 
@@ -23,7 +18,6 @@ GJB5000B 文档引擎（高内聚核心模块）
 
 import os
 import re
-import json
 import zipfile
 from lxml import etree
 
@@ -142,102 +136,6 @@ class DocParser:
         return {"total": len(phs), "by_category": cats}
 
 
-class DocPageCounter:
-    """统计 docx 页数（基于分节符 + 估算，供范围保护参考）。"""
-
-    @staticmethod
-    def count_sections(path):
-        """统计分节数（sectPr 个数）。"""
-        with zipfile.ZipFile(path) as z:
-            xml = z.read("word/document.xml")
-        root = etree.fromstring(xml)
-        return len(_all_tags(root, "sectPr"))
-
-    @staticmethod
-    def count_pages_approx(path):
-        """按段落数粗估页数（每页约 38 段）。仅供校验。"""
-        with zipfile.ZipFile(path) as z:
-            xml = z.read("word/document.xml")
-        root = etree.fromstring(xml)
-        paras = _all_tags(root, "p")
-        return max(1, (len(paras) + 37) // 38)
-
-
-class DocRangeProtector:
-    """对文档指定范围设置只读/编辑区域保护（基于书签或分节）。"""
-
-    def __init__(self, path):
-        self.path = path
-
-    def protect_section(self, section_index, password=None):
-        """对第 section_index 个分节加编辑保护。"""
-        with zipfile.ZipFile(self.path) as z:
-            xml = z.read("word/document.xml")
-        root = etree.fromstring(xml)
-        sects = _all_tags(root, "sectPr")
-        if section_index < 0 or section_index >= len(sects):
-            raise IndexError("分节索引越界")
-        sect = sects[section_index]
-        doc_protect = etree.SubElement(sect, _ns_tag("docProtect"))
-        doc_protect.set(_ns_tag("edit"), "readOnly")
-        if password:
-            doc_protect.set(_ns_tag("pwd"), password)
-        return etree.tostring(root, xml_declaration=True,
-                              encoding="UTF-8", standalone=True)
-
-
-# ============================================================
-# 二、模板引擎层
-# ============================================================
-
-class DataResolver:
-    """解析用户填写的数据源（JSON / dict），支持嵌套取值。"""
-
-    @staticmethod
-    def load(path_or_dict):
-        if isinstance(path_or_dict, dict):
-            return path_or_dict
-        if isinstance(path_or_dict, str):
-            if path_or_dict.strip().startswith("{"):
-                return json.loads(path_or_dict)
-            with open(path_or_dict, "r", encoding="utf-8") as f:
-                return json.load(f)
-        raise TypeError("DataResolver.load 仅接受 dict / JSON 字符串 / 文件路径")
-
-    @staticmethod
-    def get(data, dotted_key, default=""):
-        """data['a']['b'] 形式按 'a.b' 取值，缺省返回 default。"""
-        cur = data
-        for part in dotted_key.split("."):
-            if isinstance(cur, dict) and part in cur:
-                cur = cur[part]
-            else:
-                return default
-        return cur
-
-
-class TemplateMiner:
-    """从源文档采集可复用片段（整表、页眉图片）。"""
-
-    @staticmethod
-    def extract_table_xml(path, table_index):
-        """提取第 table_index 张表的完整 <w:tbl> XML 字符串。"""
-        with zipfile.ZipFile(path) as z:
-            xml = z.read("word/document.xml")
-        root = etree.fromstring(xml)
-        tbls = _all_tags(root, "tbl")
-        if table_index < 0 or table_index >= len(tbls):
-            raise IndexError("表索引越界")
-        return etree.tostring(tbls[table_index], encoding="unicode")
-
-    @staticmethod
-    def extract_header_pict(path):
-        """提取页眉中的 VML 图片 shape（用于复用边框样式）。"""
-        with zipfile.ZipFile(path) as z:
-            header_xml = z.read("word/header1.xml")
-        return header_xml
-
-
 class WordInjector:
     """Word 占位符灌装引擎（通用，不绑定具体项目）。"""
 
@@ -251,27 +149,101 @@ class WordInjector:
                 text = text.replace(ph, mapping[ph])
         return text
 
+    # 袁总 2026-09-03（第三十三轮）：部分占位符只锁【值的一部分】。
+    # 如 R105_SDP_V1.00 只锁 "R105_SDP_" 前缀，版本 "V1.00" 保持可编辑。
+    # value → 实际要锁定的子串（必须是 value 的前缀）。
+    LOCK_VALUE_PREFIX_OVERRIDE = {
+        "{{meta.doc_number}}": lambda v: v.rsplit("_V", 1)[0] + ("_" if "_V" in v else ""),
+    }
+
     @staticmethod
-    def fill_tree(root, mapping, keys_desc=None, lock=False):
+    def fill_tree(root, mapping, keys_desc=None, lock=False, lock_keys=None):
         """遍历 root 下所有 w:t 文本节点与元素属性做占位符替换。
 
-        lock=True 时：被替换的 run 会用 inline sdt（<w:sdt> + sdtContentLocked）包裹，
-        实现"平台填入的数据不可编辑"；未含占位符的 run（用户填写区/手写签字区）不受影响。
+        lock=True 时：被替换的占位符【值】会用 inline sdt 锁定。
+        袁总 2026-09-03（第三十三轮）核心改造——【run 拆分锁定】：
+        旧逻辑把占位符所在的整个 run 锁定，导致占位符与正文混在同一 run 时
+        （如 IAP 描述段、软件名+描述句）整段不可编辑。
+        新逻辑把 run 拆成三段：[占位符前文字（可编辑）]
+                              + [占位符值（sdt 锁定）]
+                              + [占位符后文字（可编辑）]。
+        这样 IAP 段落描述、软件名前后文字均可编辑，只有元数据值本身锁定，
+        精确满足袁总"仅 XX 不可编辑、其余可编辑"的口径。
+        lock_keys：锁定白名单（占位符集合）。lock_keys 为 None 时退化为全部锁定。
         """
         if keys_desc is None:
             keys_desc = sorted(mapping.keys(), key=lambda k: -len(k))
+        if lock_keys is None:
+            lock_keys = set(mapping.keys()) if lock else set()
+        else:
+            lock_keys = set(lock_keys)
         sid = [7000]      # sdt id 计数器（用列表便于嵌套函数递增）
-        # 1) 文本节点
-        # 注意：必须先完成全部文本替换、再统一包裹 sdt。
-        # 边遍历边修改树会让 lxml 迭代器失效（曾导致 500 Internal Server Error）。
-        to_lock = []
+        # 1) 文本节点（先替换后拆分锁定；不边遍历边改树，防 lxml 迭代器失效）
+        to_split = []   # [(t_node, segments)]，segments=[(text, locked), ...]
         for t in _all_tags(root, "t"):
             if t.text and "{{" in t.text:
-                t.text = WordInjector.fill_scalar_text(t.text, mapping, keys_desc)
-                if lock:
-                    to_lock.append(t)
-        for t in to_lock:
-            WordInjector._lock_run_of(t, sid)
+                original = t.text
+                # 扫描原文，找出所有命中白名单的占位符区间（不重叠，同位置取最长）
+                segs = []           # [(start, end, key)]
+                pos = 0
+                while True:
+                    best = None
+                    for k in lock_keys:
+                        i = original.find(k, pos)
+                        if i < 0:
+                            continue
+                        if best is None or i < best[0] or (i == best[0] and len(k) > best[1] - best[0]):
+                            best = (i, i + len(k), k)
+                    if best is None:
+                        break
+                    segs.append(best)
+                    pos = best[1]
+                # 替换全文（占位符 → 值）
+                t.text = WordInjector.fill_scalar_text(original, mapping, keys_desc)
+                if not segs:
+                    continue
+                # 构造分段 [(text, locked)]：按原文区间切，占位符段用替换后的值
+                parts = []
+                cursor = 0
+                for (s0, e0, k) in segs:
+                    if s0 > cursor:
+                        parts.append((original[cursor:s0], False))
+                    val = mapping.get(k, "") or ""
+                    # 部分锁定覆盖（如 doc_number 只锁前缀）
+                    override = WordInjector.LOCK_VALUE_PREFIX_OVERRIDE.get(k)
+                    if override:
+                        locked_v = override(val)
+                        tail = val[len(locked_v):]
+                        if locked_v:
+                            parts.append((locked_v, True))
+                        if tail:
+                            parts.append((tail, False))
+                    else:
+                        parts.append((val, True))
+                    cursor = e0
+                if cursor < len(original):
+                    parts.append((original[cursor:], False))
+                # 合并相邻同锁状态的段，减少 run 数量
+                merged = []
+                for txt, lk in parts:
+                    if not txt:
+                        continue
+                    if merged and merged[-1][1] == lk:
+                        merged[-1] = (merged[-1][0] + txt, lk)
+                    else:
+                        merged.append((txt, lk))
+                if len(merged) <= 1:
+                    # 袁总 2026-09-03（第三十九轮·漏锁根因）：相邻多个锁定占位符
+                    # （如 {{sys.short}}{{sys.software_full}}）替换后合并为
+                    # 【单段且全锁】（如"CB-B/DSQ-1AG终点/轮载开关模拟器驱动软件"），
+                    # 此前直接 continue 跳过 → 封面/标题处型号+软件名未锁定。
+                    # 单段全锁仍须 sdt 包裹锁定。
+                    if merged and merged[0][1]:
+                        WordInjector._lock_run_of(t, sid)
+                    continue
+                to_split.append((t, merged))
+        for t, segs in to_split:
+            WordInjector._split_run_segments(t, segs, sid)
         # 2) 元素属性（签名 descr / 图片说明等）
         for el in root.iter():
             for attr, val in list(el.attrib.items()):
@@ -281,6 +253,60 @@ class WordInjector:
         for p in _all_tags(root, "p"):
             WordInjector._merge_runs(p, mapping, keys_desc)
         return root
+
+    @staticmethod
+    def _split_run_segments(t_node, segments, sid_ref):
+        """把 w:t 所属 run 拆成多段：locked 段用 sdt 包裹，unlocked 段保持普通 run。
+        segments: [(text, locked), ...]，第一段复用原 run（保格式），其余新建 run（复制 rPr）。"""
+        WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+        def w(tag):
+            return "{%s}%s" % (WNS, tag)
+
+        run = t_node.getparent()
+        if run is None or run.tag != w("r"):
+            return
+        parent = run.getparent()
+        if parent is None:
+            return
+        idx = list(parent).index(run)
+        # 第一段写入原 run
+        first_text, first_locked = segments[0]
+        t_node.text = first_text
+        pieces = [(run, first_locked)]
+        # 后续段新建 run（复制 rPr 保持格式一致）
+        rpr = run.find(w("rPr"))
+        for txt, lk in segments[1:]:
+            nr = etree.Element(w("r"))
+            if rpr is not None:
+                nr.append(etree.fromstring(etree.tostring(rpr)))
+            nt = etree.SubElement(nr, w("t"))
+            nt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            nt.text = txt
+            pieces.append((nr, lk))
+        # 按顺序插回 parent；locked 段包 sdt
+        insert_at = idx
+        for node, lk in pieces:
+            if lk:
+                sid_ref[0] += 1
+                sdt = etree.Element(w("sdt"))
+                sdt_pr = etree.SubElement(sdt, w("sdtPr"))
+                id_el = etree.SubElement(sdt_pr, w("id"))
+                id_el.set(w("val"), str(sid_ref[0]))
+                lock_el = etree.SubElement(sdt_pr, w("lock"))
+                lock_el.set(w("val"), "sdtContentLocked")
+                app_el = etree.SubElement(sdt_pr, w("appearance"))
+                app_el.set(w("val"), "hidden")
+                content = etree.SubElement(sdt, w("sdtContent"))
+                parent.remove(node) if node.getparent() is parent else None
+                content.append(node)
+                parent.insert(insert_at, sdt)
+                insert_at += 1
+            else:
+                if node.getparent() is parent:
+                    parent.remove(node)
+                parent.insert(insert_at, node)
+                insert_at += 1
 
     @staticmethod
     def _lock_run_of(t_node, sid_ref):
@@ -306,6 +332,10 @@ class WordInjector:
         id_el.set(w("val"), str(sid_ref[0]))
         lock_el = etree.SubElement(sdt_pr, w("lock"))
         lock_el.set(w("val"), "sdtContentLocked")
+        # 隐藏内容控件外观：否则 Word 会给锁定区域显示灰色边框/底纹
+        # （项目方 2026-09-02 反馈的"表格有底色"实为此显示，非 w:shd 底纹）。
+        app_el = etree.SubElement(sdt_pr, w("appearance"))
+        app_el.set(w("val"), "hidden")
         content = etree.SubElement(sdt, w("sdtContent"))
         idx = list(parent).index(run)
         parent.remove(run)
@@ -313,19 +343,46 @@ class WordInjector:
         parent.insert(idx, sdt)
 
     @staticmethod
+    def _in_sdt(run):
+        """判断 run 是否处于内容控件(sdt)内——sdt 内的 run 已被锁定，
+        合并 run 时必须跳过，避免把正文塞进锁定区域或破坏锁定结构。"""
+        anc = run.getparent()
+        while anc is not None:
+            if _localname(anc.tag) == "sdtContent":
+                return True
+            anc = anc.getparent()
+        return False
+
+    @staticmethod
     def _merge_runs(p, mapping, keys_desc):
-        runs = _all_tags(p, "r")
+        # 防御（袁总 2026-09-03 页眉丢失根因）：页眉部件（header4/5）的 XML 结构里
+        # 整张表格嵌在段落内，递归收集 run 会把各单元格的 run 全部算作"同段 run"，
+        # join 后含 {{ 触发合并 → 删除其余 run → 表格全部文本被清空（页眉消失）。
+        # 段落内含表格时直接跳过；单元格内的段落稍后会作为独立 p 单独处理。
+        if any(_localname(e.tag) == "tbl" for e in p.iter()):
+            return
+        # 防御2（袁总 2026-09-03 第四十一轮）：段落里若已含 sdt（第 1 步已对
+        # 占位符值做了 run 级锁定），再【整体】合并 run 会把后续正文塞进
+        # 【已锁定的 run】，导致整段（描述性正文）都不可编辑。
+        # 但不能直接 return——否则跨 run 的占位符（如 {{sw.name_iap}} 被拆在
+        # 多个 run）永远合并不了，文档里会残留未替换的占位符（回归缺陷）。
+        # 正确做法：只合并【未锁定】的 run，锁定 run 原样保留。
+        runs = [r for r in _all_tags(p, "r") if not WordInjector._in_sdt(r)]
         if len(runs) < 2:
             return
         full = "".join((t.text or "") for r in runs for t in _all_tags(r, "t"))
         if "{{" not in full:
             return
         new_text = WordInjector.fill_scalar_text(full, mapping, keys_desc)
-        # 保留第一个 run，清空其余，写入合并后文本
+        # 保留第一个未锁定 run，清空其余未锁定 run，写入合并后文本
         first_r = runs[0]
         first_t = _all_tags(first_r, "t")
         if first_t:
             first_t[0].text = new_text
+        elif new_text:
+            nt = etree.SubElement(first_r, _ns_tag("t"))
+            nt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            nt.text = new_text
         for r in runs[1:]:
             parent = r.getparent()
             if parent is not None:
@@ -333,33 +390,27 @@ class WordInjector:
 
     @staticmethod
     def replace_table_anchor(root, anchor, table_xml):
-        """将含 anchor 占位符的段落替换为整张表。"""
+        """将含 anchor 占位符的段落替换为整张表。
+
+        项目方 2026-09-02 扩展：table_xml 允许为【多个兄弟元素】
+        （如"表C.1"拆成多张分表，分表之间插入"表C.1（续）"标题段落）。
+        实现：外层包 <w:root> 解析，再把其全部子元素按序插入原段落位置。
+        单元素（历史行为）同样兼容。
+        """
         for p in _all_tags(root, "p"):
             txt = DocParser._para_text(p)
             if anchor in txt:
-                tbl_el = etree.fromstring(table_xml.encode("utf-8"))
+                wrapped = ('<w:root xmlns:w="%s">%s</w:root>'
+                           % ("http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+                              table_xml))
+                wrapper = etree.fromstring(wrapped.encode("utf-8"))
                 parent = p.getparent()
                 idx = list(parent).index(p)
                 parent.remove(p)
-                parent.insert(idx, tbl_el)
+                for i, child in enumerate(list(wrapper)):
+                    parent.insert(idx + i, child)
                 return True
         return False
-
-
-class ExcelInjector:
-    """Excel 占位符灌装（xlsx，基于 openpyxl 风格字符串替换）。"""
-
-    @staticmethod
-    def fill_cell_values(cells, mapping, keys_desc=None):
-        if keys_desc is None:
-            keys_desc = sorted(mapping.keys(), key=lambda k: -len(k))
-        for row in cells:
-            for i, val in enumerate(row):
-                if isinstance(val, str) and "{{" in val:
-                    row[i] = WordInjector.fill_scalar_text(val, mapping, keys_desc)
-        return cells
-
-
 # ============================================================
 # 三、SDP 占位符模板生成（原 gen_sdp_placeholder_docx.py 核心）
 # ============================================================
@@ -485,7 +536,6 @@ class SdpPlaceholderBuilder:
             if style is not None and style.find(_ns_tag("pStyle")) is not None:
                 end = j
                 break
-        body = root if _localname(root.tag) == "body" else root.find(_ns_tag("body"))
         for p in paras[start:end]:
             parent = p.getparent()
             if parent is not None:
@@ -589,7 +639,7 @@ class SdpFiller:
             for n, b in data.items():
                 z.writestr(n, b)
 
-    def fill_from_data(self, ph_map, table_map):
+    def fill_from_data(self, ph_map, table_map, lock_keys=None):
         """库驱动灌装：ph_map=标量占位符映射, table_map=锚点->整表XML字符串。
 
         与 fill() 行为一致，但数据源从「REPLACEMENTS + TABLE_FILES 文件」
@@ -605,7 +655,8 @@ class SdpFiller:
             if part == "word/document.xml" or part.startswith("word/header") or part.startswith("word/footer"):
                 if part.endswith(".xml"):
                     root = etree.fromstring(data[part])
-                    WordInjector.fill_tree(root, ph_map, PH_KEYS, lock=True)
+                    WordInjector.fill_tree(root, ph_map, PH_KEYS, lock=True,
+                                          lock_keys=lock_keys)
                     data[part] = etree.tostring(root, xml_declaration=True,
                                                 encoding="UTF-8", standalone=True)
 

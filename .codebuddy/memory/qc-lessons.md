@@ -221,3 +221,155 @@
 - 需求：袁总要求"删除马慧芳的电子签字"。取证发现 5 处"马慧芳"：**2 处是电子签名图片**（`wp:docPr`/`pic:cNvPr` 的 `descr` 含 `MARKNAME=手写签名&#10;USERNAME=马慧芳&#10;DATETIME=...`），**3 处是正文/表格里的姓名文本**。
 - 修复：新增 `_remove_signature_images()`，用正则 `<w:drawing>.*?</w:drawing>` 匹配、若块内含 `USERNAME=<姓名>` 则整块删除（只删签名图，保留正文姓名，因为袁总说的是"电子签字"）。
 - **铁律固化：文档里的"人名/签名"可能是图片元数据(descr/USERNAME)而非纯文本**（参见坑21：签名图片 descr 漏替换）。处理前先 grep 全文定位形态（属性 vs 文本），再决定删除/替换策略。
+
+
+## 坑40 · lxml 遍历时修改树会让迭代器失效（后端 500）【XML处理坑】
+- 现象：在 `for t in _all_tags(root, "t")` 循环里直接 remove/insert run（包裹 sdt），接口直接 500，前端只见 Internal Server Error。
+- 根因：边遍历 lxml 树边改结构，迭代器失效。
+- 修复：先遍历收集目标节点到 list，遍历结束后再统一修改。
+- 铁律固化：凡"遍历 XML 树并修改结构"，一律【先收集、后修改】；看到 500 先查后端日志堆栈，不要只看前端报错。
+
+## 坑41 · 往类里插入新方法时，必须确认插入点是方法结尾【代码编辑坑】
+- 现象：新增 `_lock_run_of` 时，把新方法插在了 `fill_tree` 的"属性循环"之后，但那**不是方法结尾**（后面还有"第3步 跨run合并 + return root"），导致后续代码被吞进新方法体，报 `NameError: root is not defined`。
+- 修复：读取方法完整定义确认边界后重新插入，把被吞的代码归位。
+- 铁律固化：用 replace 插入函数时，old_str 必须确认是【方法最后一行】（可先 read_file 看后续代码）；插完立即 lint + 跑一次真实生成验证。
+
+## 坑42 · 非表格占位符锁定：用 inline sdt 包 run（区分平台填/用户填）【只读保护坑】
+- 需求：除 10 张平台表外，封面 R105、软件名称等**由占位符填入的值**也不可编辑，而签字页/用户填写区要能编辑。
+- 实现：在 `WordInjector.fill_tree` 替换标量占位符后，把该 `<w:t>` 所属的 `<w:r>` 包成 inline 内容控件：
+  `<w:sdt><w:sdtPr><w:id w:val="N"/><w:lock w:val="sdtContentLocked"/></w:sdtPr><w:sdtContent><w:r>原内容</w:r></w:sdtContent></w:sdt>`
+- 关键点：①**只锁含占位符的 run**，未含占位符的（用户填写区/手写签字区）天然不锁，天然区分"平台填/用户填"，无需额外标记；②CT_SdtPr 子元素有 schema 顺序，**w:id 必须排在 w:lock 之前**；③inline sdt 可直接作段落子元素（CT_SdtRun），无需外套 run。
+- 效果：本项目实测 inline sdt 163 个 + 平台表 block sdt 10 个 = 173，Word 侧 `ContentControls=173` 且 `LockContents` 173/173 全锁定。
+
+## 坑43 · 数据按基准图校准：表头跨列合并会让"按行0字符串比对"误判【数据核对坑】
+- 现象：附录B 相关方矩阵本已存在（12 列 / 9 角色），但我按"行0 前30字"与基准比对，行0 因跨列合并只显示 3 格（序号|活动|利益相关方），被误判为"缺失"。
+- 实际差异只有数据：DB 多了一行"其它/双周例会"（基准图无"其它"阶段），√ 分布其余一致。
+- 修复：dump 表的所有行（含 vMerge、各角色 √）逐格核对，再按图修数据（DELETE 多余行）。
+- 铁律固化：核对表格是否"缺失/一致"必须 dump **全部行**，不能只看表头行；跨列合并(gridSpan)的表头单元格数会少于实际列数。
+
+
+## 坑44 · 模板封面"共 N 页"不显示：域标记被非法嵌套在 <w:t> 内【OOXML坑】
+- 现象：生成文档封面显示"（共页）"，页数数字缺失。此前误判为"模板无 NUMPAGES 占位符需自己加域"，实际模板**有** NUMPAGES 域。
+- 根因（取证所得）：模板该段落写作 `<w:t>（共 <w:r><w:fldChar begin/></w:r>...<w:instrText>NUMPAGES</w:instrText>...<w:fldChar end/></w:r> 页）</w:t>`——域的 `<w:r>` 被**嵌套进 `<w:t>` 文本节点内部**。`<w:t>` 只能含文本，不能含 run，Word 解析后域失效 → 数字不显示。
+- 修复：把嵌套的域 run 提取为平级 run 序列：`<w:r><w:t>（共 </w:t></w:r> <w:r><w:fldChar begin/></w:r> <w:r><w:instrText> NUMPAGES </w:instrText></w:r> <w:r><w:fldChar end/></w:r> <w:r><w:t> 页）</w:t></w:r>`，配合 settings 的 `w:updateFields` 打开自动刷新。
+- 铁律固化：文档不显示某值时，先 dump 该处原始 XML 看结构是否合法，不要凭"有没有占位符"下结论。
+
+## 坑45 · 正则替换 XML 片段时必须把闭合标签一并消耗【XML处理坑】
+- 现象：修复页数域后模板 XML 报 `Opening and ending tag mismatch: p line 2 and r`，后端 500。
+- 根因：正则只匹配到 `</w:t>` 就结束，原外层的 `</w:r>` 未被消耗，替换后又新开了 `<w:r>...</w:r>`，导致多出一个 `</w:r>`。
+- 修复：把 `</w:r>` 纳入匹配模式一起替换；并保留备份（*.bak）便于回滚。
+- 铁律固化：改模板(docx)这类核心资产前**必须先备份**；正则替换 XML 片段后，必须做一次 XML 解析校验（etree.fromstring）确认结构合法。
+
+## 坑46 · 只读锁定白名单要收窄：正文高频键不能锁【只读保护坑】
+- 现象：按"所有由占位符填入的值都锁"实现后，锁定 163 处，导致系统概述、资源描述等**描述性正文也不可编辑**（袁总要求这些可编辑）。
+- 根因：白名单包含了 `sys.short`(型号)、`org.*`(单位)、`ref.*`(引用文件)、`cm.svn_*`(SVN地址) 等——这些在正文段落中大量出现，一锁就把整段正文变只读。
+- 修复：白名单收窄为 `meta.project_id / meta.doc_number / meta.doc_version / meta.doc_ver_tag / meta.approve_date / meta.total_pages / sys.software_full / header.form_no`（锁定从 163 → 113）。
+- 铁律固化："只锁选中字段"类需求，必须先确认该占位符在文档中的**出现频次与位置**——高频出现在正文的键不进锁定白名单；锁定后要统计数量并复核正文是否仍可编辑。
+
+## 坑47 · NUMPAGES 域结果写到域外，“共 N 页”永不联动【OOXML致命坑】
+- 现象：生成文档封面显示“（共 18 页）”，新增页后数字不变，袁总质疑“页码确定改对了吗”
+- 根因：doc_service.py 的 _apply_doc_fields 第(2b)步把 total_pages 当 fallback
+  插到 <w:fldChar end> **之后（域外）** —— 域外就是普通文本，Word 永不更新；
+  且模板原生域本身是坏域（begin -> instrText -> end，缺 separate，没有结果值）
+- 修复：
+  ① 模板用 lxml 重建标准域结构（begin -> instrText -> separate -> 结果 -> end），
+     坏域去重（NUMPAGES 数 2 -> 1）；
+  ② 代码改为把结果写入**域内**（separate 与 end 之间），不再写到域外；
+  ③ 替换前向前找最近 instrText 校验是 NUMPAGES，避免误改 PAGEREF
+     （否则目录页码会被整体改成总页数）
+- 铁律：Word 域的“结果值”必须在 separate 与 end 之间；在域外补数字 = 死数字。
+  配套 settings.xml 需 <w:updateFields w:val="true"/>，打开时才自动重算。
+
+## 坑48 · 核对脚本正则误报：XML属性被当业务数据 / 表标题靠猜【验证脚本坑】
+- 现象：核对报告称“日期未改 14 处”“表7 丢失”，实际全是误报
+- 根因1：日期正则 20\d\d-\d\d-\d\d 在**整个 document.xml** 上跑，
+  会匹配到 XML 属性（如列宽 w:w="2025" 拼出的数字），误报“日期未改”
+  （真实剩余 14 处是平台进度计划业务日期 2024-xx-xx，本就该保留）
+- 根因2：搜“各阶段工作量估计”找不到表，因为真实表头是
+  “开发阶段|阶段比例|工程类工作量（人日）…”，标题名与猜测不一致 -> 误判“表丢了”
+- 修复：① 日期类正则只在 <w:t> 正文文本里搜；
+  ② 先列出全部 <w:tbl> 的表头文本再匹配，绝不靠猜标题
+- 铁律：下“缺失 / 未修改”结论前，必须先排掉两件事——
+  正则是否匹配到了 XML 属性、关键词是否与文档真实写法一致。
+
+## 决策 · 只读区颜色（袁总 2026-09-02 拍板）
+- 结论：**全部保留无色**，不加任何底纹（FFF2CC 等）。
+- 落地：_shade_readonly_tables 在 _apply_sdt_readonly 中维持注释状态，不得再恢复调用。
+- 说明：只读由 sdt（Content Control）锁定保证，不依赖颜色标识；
+  加底色会导致打印呈灰白，故袁总选择无色。
+
+## 坑49 · _merge_runs 递归收集 run 遇嵌套表格清空页眉【docx处理坑】
+- 现象：生成的 SDP 正文/附录页眉（header4/5）全部文本为空，袁总反馈"页眉没有了"
+- 根因：页眉 XML 存在"整张表格嵌在 w:p 内"的非标准结构，_merge_runs 用 _all_tags(p,'r') 递归收集段落全部 run（跨表格单元格），join 后含 {{ 占位符触发合并逻辑 → 删除"其余"run（即表格各格的 run 全删）→ 全表文本清空；且第一个 run 无 w:t 时合并文本也丢
+- 修复：段落含 tbl 直接 return（单元格内段落稍后作为独立 p 处理）+ first_t 为空时新建 w:t 承载文本
+- 铁律固化：凡用递归 iter 收集 OOXML 元素（run/段落/文本），必须防御嵌套表格——先判 p.iter() 里有无 tbl
+
+## 坑50 · Word COM Fields.Update+Save 产出坏 XML + NUMPAGES 懒分页【COM坑】
+- 现象：用 COM 更新域后保存，document.xml 出现 sdtContent 标签不闭合（lxml 解析失败）；且 NUMPAGES 更新后=6 而真实 50 页
+- 根因（两层）：① Word 序列化 bug——Fields.Update 触发后保存会写出不闭合的 sdt（二分法实测：只 Open+Save XML OK，加域更新即 BAD）；② Word 懒分页——打开时文档未完全分页，Fields.Update 时 NUMPAGES 按已渲染部分计算
+- 修复（最终方案）：COM 只读打开 → ComputeStatistics(2) 强制全量分页取真实页数 N → 不保存直接关 → Python 改 document.xml 中 NUMPAGES 域 separate~end 之间的 w:t 缓存为 N。XML 全程合法、页数精确
+- 铁律固化：① 生成端写页码一律"COM 只读算页数 + Python 改域缓存"，禁止 COM Save；② COM 里任何统计前先 ComputeStatistics 强制分页
+
+## 坑51 · 相邻两张 w:tbl 无段落分隔会被 Word 合并渲染 + 表格适配不分节压坏横向附录【docx格式坑】
+- 现象：表22/23 "和到一起"变成一张表；附录C 宽表（R121 原宽 14613）被压到 9278 列挤压换行"表格太长"
+- 根因：① OOXML 里同父级相邻两张 tbl 中间无段落时 Word 合并渲染为一张表（模板相邻占位符段落被整表替换后触发）；② _fit_tables_to_page 只取第一个 sectPr 的纵向宽（9468）压所有表，而附录 sect#4 是横向页（可用宽 14406）
+- 修复：① 新增 _separate_adjacent_tables 同父级相邻表对插空段落；② 按文档序收集各节可用宽 [9468,9590,9590,14406]，遍历时遇 sectPr 切换，每表用所在节的宽（嵌套表跳过）
+- 铁律固化：① 整表替换占位符后必须检查相邻表格；② 多节文档的表格宽度适配必须分节计算（横向节 pgSz w=16838）
+
+## 坑52 · fill_tree 单段全锁漏锁 + R121 表头无空格铁证【docx处理坑】
+- 现象：封面"CB-B/DSQ-1AG终点/轮载开关模拟器驱动软件"未锁定；表头"序 号"(\xa0)、"型号 / 图号"被袁总反复点名"表格里有空格"
+- 根因1：fill_tree 中相邻多个锁定占位符（{{sys.short}}{{sys.software_full}}）替换后合并成【单段全锁】，len(merged)<=1 分支直接 continue（注释说"走旧逻辑"但旧逻辑 _lock_run_of 从未被调用）→ 漏锁。修复：单段全锁也调 _lock_run_of——同时补上所有"占位符独占 w:t"场景的漏锁
+- 根因2：R121 dump 取证全部表头为紧凑格式（'序号'无\xa0、'型号/图号/代号/版本/参数'无空格、'开发阶段'无斜杠）——R105 模板/生成表头的 \xa0 和" / "正是袁总说的空格。修复：_compact_table_headers 全局清理（只动 \xa0 与" / "，'单  位'等签署页对齐空格保留）+ 模板静态 CB-B/DSQ-1AG 5 处改 {{sys.short}} 占位符（锁定需经占位符路径）
+- 铁律固化：①凡"锁定占位符值"，合并后单段全锁也必须包 sdt；②对标格式必须 dump 原版逐字符取证（repr 显示 \xa0）；③模板静态文本要锁定必须先改占位符；④表标题段落加 keepNext 防分页分离（_add_caption_keepnext）
+
+## 坑53 · Word COM 在 uvicorn worker(MTA) 内静默失败——必须子进程隔离【COM坑·二次确认】
+- 现象：生成接口里调 _update_fields_with_word，ComputeStatistics 能返回页数(50)，但 Bookmarks/Range 相关调用全部静默失败（pagerefs 恒空），TOC 页码永远写不进去；单独脚本跑同一段代码却完全正常
+- 根因：uvicorn worker 是 MTA 多线程环境，Word COM 要求 STA（同坑17 在 PyCharm/pytest 的表现）
+- 修复：新增 backend/services/word_pages.py 独立子进程（纯 STA），subprocess 拉起、JSON 回传 {"pages":N,"pagerefs":{...}}；主进程只解析 JSON，永不直接 Dispatch
+- 铁律固化：任何在 FastAPI/uvicorn worker 内取 Word 数据（页数/书签/域）的操作，必须 subprocess 子进程隔离
+
+## 坑54 · TOC 书签是隐藏书签 + HYPERLINK 内嵌 PAGEREF【docx域处理坑】
+- 现象：目录页码写不进去 / 写错 1 页
+- 根因1：TOC 的书签（_TocXXXX）是【隐藏书签】，doc.Bookmarks.Count 只有 5（实际 PAGEREF 引用 88 个），必须先 `doc.Bookmarks.ShowHidden = True` 才能按名访问，否则 Exists 恒 False
+- 根因2：目录条目是【HYPERLINK 域内嵌 PAGEREF 域】的嵌套结构，按"begin...end 平衡片段"整体处理时取到的指令是外层 HYPERLINK，内层 PAGEREF 永远轮不到
+- 根因3：不能用 f.Result.Text 作页码真值（受 TOC 更新顺序影响，实测偏移 1 页）
+- 修复：按 instrText 逐个定位——每条 NUMPAGES/PAGEREF 指令，找它之后最近的 separate → 替换其后的第一个 w:t；页码真值取 `Bookmarks(bm).Range.Information(1)`（逻辑页码）
+- 铁律固化：① 访问隐藏书签前 ShowHidden=True；② 处理嵌套域不要整体取片段，按 instrText 逐个定位；③ 页码真值用书签 Information(1)，不用域结果
+
+## 坑55 · 表标题与表格分页分离的两个真因：硬分页符 + keepNext 链过长【Word排版坑】
+- 现象：表22/23/24/25 标题留在上页尾、表格跳到下页（袁总反复反馈三次以上）
+- 真因1（主因）：模板在表标题与表格之间留了【两个含硬分页符的空段落】(<w:br w:type="page"/>)，Word 连续换两页 → 中间整页空白，且硬分页让 keepNext 完全失效
+- 真因2：keepNext 把"标题 + 其后所有段落 + 表格"绑成一大块，Word 放不下时整体推页 → 也会产生空白页
+- 修复：① _strip_breaks_between_caption_and_table 删除标题与表格之间的硬分页符、多个连续空段落只留一个；② keepNext 只在"标题紧贴表格（中间至多 1 个空段）"时绑定，不做长链
+- 铁律固化：Word 分页问题先查硬分页符（br type=page / pageBreakBefore），再谈 keepNext；keepNext 链不宜超过 2 段
+
+## 坑56 · 表22/23 结构错位：占位符段落位置错误【模板坑】
+- 现象：袁总反复说"表22 组织机构表和表23 人力资源表乱"——实际是【组织机构表】标题下没有表格，表22 实体排在【人力资源表】标题之后
+- 根因：模板里 {{table.org_chart}} 占位符段落被插在"人力资源表"标题段落之后（@431），而 {{table.human_resource}} 在其后（@433）
+- 修复：temp/patch_tpl_orgchart.py 把 {{table.org_chart}} 段落移动到「组织机构表」标题之后（备份 .bak_orgchart）
+- 铁律固化：整表占位符插入后必须打印"标题→表格"文档序复核，确认每个标题下挂的是对应的表
+
+## 坑57 · _merge_runs 与 run 级锁定冲突：要么整段被锁，要么占位符残留【docx处理坑·双向陷阱】
+- 现象A：模板段落"{{sys.software_full}}和主控板控制软件采用C语言进行开发…"整段不可编辑（袁总要求描述性正文可编辑）
+- 现象B：为修 A 把 _merge_runs 改成"段落含 sdt 就 return"，结果跨 run 的占位符（{{sw.name_iap}} 被拆在多个 run）永远合并不了 → 文档里残留未替换的 {{sw.name_iap}}
+- 根因：_merge_runs 用 _all_tags(p,'r') 递归收集【全部】run（含已锁在 sdt 内的），合并时把后续正文塞进已锁定的 run（现象A）；直接 return 又放弃了跨 run 占位符替换（现象B）
+- 修复：只合并【未锁定】的 run——`runs = [r for r in _all_tags(p,'r') if not WordInjector._in_sdt(r)]`，锁定 run 原样保留；新增 _in_sdt(run) 判断祖先是否有 sdtContent
+- 铁律固化：凡"部分锁定"的段落做 run 合并，必须排除已锁定 run；既不能全合并（污染锁定），也不能全不合并（占位符残留）
+
+## 坑58 · 模板静态残留标题与生成标题叠加，导致附录C 末尾多出 3 个无表跟随的标题【模板坑】
+- 现象：袁总截图指出附录C 末尾"最后的这个删除掉"——末尾有 3 个多余标题（表C.1 数据管理表 / 表C.1（续）×2）且后面没有表格
+- 根因：模板里附录C 原本就静态写着这些标题，而 build_data_mgmt_tbl（含 _split_tbl_with_continuation）生成时又输出一份标题与续表标题 → 叠加重复
+- 修复：temp/patch_tpl_trailing.py 删除 {{table.data_mgmt}} 占位符【之后】的残留标题段落（备份 .bak_trailing），保留生成时输出的那份
+- 铁律固化：整表占位符替换后，必须检查占位符【之后】是否还有同名的静态残留标题/表格；生成侧输出标题时，模板侧的同名静态标题必须清掉
+
+## 坑59 · 15 列宽表列宽不够容中文 4 字 → 文字每字竖排【docx格式坑】
+- 现象：附录A 项目风险管理表（15 列 31 行）每字占一行"竖排"，根本看不完
+- 真因：build_risks_tbl 列宽直接搬 R121（最小 142 dxa），中文 4 字约需 700-800 dxa 才容下横排。模板/纵向节 avail=9468 → 横向节 14406；15 列 × 900 dxa = 13500（窄列）→ 文字每字换行
+- 修复：① _simple_tbl / _cell 加 size 参数（OOXML sz 半磅，21=10.5号/20=8号）；② 重排附录 A 列宽（描述列 2200+措施列 1700+其余最小 800，总 14300 在横向节内）；③ build_risks_tbl 调用 mkrow 时 size=20 让所有 15 列均用 8 号字，确保 700-800 dxa 列也能容中文 4 字
+- 铁律固化：宽表（≥10 列）必须【同时考虑列宽 + 字号】，对标 R121 的列宽只适用于 R121 的字号；本项目沿用 R121 列宽但需缩字号到 8 号
+
+## 坑60 · 模板宽表与对标来源不匹配：R121 根本没有附录A 风险宽表【模板坑】
+- 现象：build_risks_tbl 按 15 列对标 R121 生成，但实际 R121 附录A 是文字段落或窄列描述
+- 真因：早期误判 R121 表头数与 R105 一致，未做 dump 取证；R121 最高列数表是 12 列（附录B 利益相关方矩阵），没有 P/I 列宽表
+- 修复：dump_r121_tables.json 全表头列表 + 列宽取证；15 列宽表实际是我们自创的，需独立设计列宽与字号
+- 铁律固化：对标前必须先 dump 参考文档【全部】表格（列宽+列数+表头），确认存在该表型再"对标"，否则就是自创

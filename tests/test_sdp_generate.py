@@ -73,8 +73,9 @@ class TestAnchors(unittest.TestCase):
         self.assertEqual(ph_map.get("{{meta.project_id}}"), PID)
         self.assertEqual(ph_map.get("{{meta.doc_ver_tag}}"), "D")  # 袁总：页眉永远 D 版
 
-    def test_schedule_table_7_phases(self):
-        """工作量/进度表：7 阶段（项目启动+项目策划+需求~验收），合计 45.90/30.60/76.50/77。"""
+    def test_schedule_table_5_phases(self):
+        """工作量/进度表：库 7 阶段（含工作量 0 的项目启动/项目策划），渲染时按
+        项目方口径过滤 0 值阶段，只显示 5 阶段（需求~验收），合计 45.90/30.60/76.50/77。"""
         db = SessionLocal()
         try:
             rows = db.query(SchedulePhase).filter(
@@ -83,7 +84,7 @@ class TestAnchors(unittest.TestCase):
             db.close()
         self.assertEqual(len(rows), 7)
         txt = re.sub(r"<[^>]+>", "|", build_schedule_tbl(rows))
-        for name in ["项目启动", "项目策划", "需求", "设计", "实现", "测试", "验收"]:
+        for name in ["需求", "设计", "实现", "测试", "验收"]:
             self.assertIn(name, txt)
         self.assertIn("45.90", txt)
         self.assertIn("76.50", txt)

@@ -21,60 +21,6 @@ function settingsRender() {
   settingsLoadLocalPaths();
 }
 
-// ---- 区0：项目配置（新建 / 修改项目信息 / 切换当前项目）----
-function settingsLoadProjects() {
-  Api.listProjects().then(function (r) {
-    var rows = (r && r.data) || [];
-    var cur = Api.curProjectId();
-    var h = '<table class="tbl"><thead><tr>' +
-      '<th>项目代号</th><th>软件全称</th><th>飞机型号</th><th>负责人</th><th>承研单位</th><th>客户单位</th>' +
-      '<th>阶段</th><th>立项日期</th><th>批准日期</th><th>IDE版本</th><th>软件版本</th><th>文档编号</th><th>本机路径</th><th>SVN 基路径</th>' +
-      '<th>当前</th><th>操作</th></tr></thead><tbody>';
-    rows.forEach(function (x) {
-      var isCur = x.projectId === cur;
-      h += '<tr data-pid="' + x.projectId + '">' +
-        '<td><input value="' + x.projectId + '" data-f="projectId" style="width:70px" ' + (isCur ? 'readonly' : '') + '></td>' +
-        '<td><input value="' + (x.projectName || '') + '" data-f="projectName" style="width:100px"></td>' +
-        '<td><input value="' + (x.aircraftModel || '') + '" data-f="aircraftModel" style="width:60px" placeholder="K409"></td>' +
-        '<td><input value="' + (x.owner || '') + '" data-f="owner" style="width:60px"></td>' +
-        '<td><input value="' + (x.org || '') + '" data-f="org" style="width:80px"></td>' +
-        '<td><input value="' + (x.customerDept || '') + '" data-f="customerDept" style="width:80px"></td>' +
-        '<td><input value="' + (x.phase || '') + '" data-f="phase" style="width:60px" placeholder="初样"></td>' +
-        '<td><input value="' + (x.startDate || '') + '" data-f="startDate" style="width:70px"></td>' +
-        '<td><input value="' + (x.approveDate || '') + '" data-f="approveDate" style="width:70px"></td>' +
-        '<td><input value="' + (x.ideVersion || '') + '" data-f="ideVersion" style="width:70px"></td>' +
-        '<td><input value="' + (x.swVersion || '') + '" data-f="swVersion" style="width:70px"></td>' +
-        '<td><input value="' + (x.docNumber || '') + '" data-f="docNumber" style="width:80px"></td>' +
-        '<td><input value="' + (x.localPath || '') + '" data-f="localPath" style="width:80px"></td>' +
-        '<td><input value="' + (x.svnBasePath || '') + '" data-f="svnBasePath" style="width:80px"></td>' +
-        '<td>' + (isCur ? '<span class="tag ok">当前</span>' : '<button class="btn ghost sm" onclick="settingsSetCurProj(\'' + x.projectId + '\')">设为当前</button>') + '</td>' +
-        '<td><button class="btn ghost sm" onclick="settingsSaveProj(this)">保存</button>' +
-        '<button class="btn ghost sm" onclick="settingsEditProj(\'' + x.projectId + '\')">修改</button></td></tr>';
-    });
-    h += '</tbody></table>' +
-      '<div class="note">项目代号=软件编号（生成文档/文件名/风险表/SVN 一律用此值）。飞机型号、负责人、单位、阶段、立项日期、文档编号均会注入生成的开发计划。修改后点「保存」即更新；「设为当前」切换全局代号。</div>' +
-      '<button class="btn primary sm" onclick="settingsAddProj()">＋ 新建项目</button>';
-    document.getElementById('project-box').innerHTML = h;
-  }).catch(function (e) {
-    document.getElementById('project-box').innerHTML = '<div class="err">加载失败：' + (e.message || e) + '</div>';
-  });
-}
-// 新建/修改项目：弹窗收集全部关键词字段。editPid 非空时为修改模式（预填当前值）
-function settingsSaveProj(btn) {
-  var tr = btn.closest('tr');
-  var pid = tr.getAttribute('data-pid');
-  var payload = {};
-  tr.querySelectorAll('[data-f]').forEach(function (el) { payload[el.getAttribute('data-f')] = el.value.trim(); });
-  Api.updateProject(pid, payload).then(function () { settingsLoadProjects(); })
-    .catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
-function settingsSetCurProj(pid) {
-  if (!confirm('切换当前项目为 ' + pid + '？')) return;
-  Api.setCurrentProject(pid).then(function () {
-    Api.loadCurrentProject().then(function () { settingsLoadProjects(); toast('已切换到 ' + pid); });
-  }).catch(function (e) { alert('切换失败：' + (e.message || e)); });
-}
-
 // ---- 区1：仓库配置 ----
 function settingsLoadRepos() {
   Api.listSvnRepos().then(function (r) {
@@ -105,13 +51,14 @@ function settingsAddRepo() {
   tr.innerHTML = repoRow({ projectId: '', repoUrl: 'https://yuanyan/svn/', username: 'admin', password: '123456', baseRelPath: 'trunk/develop' });
   tb.appendChild(tr);
 }
-function settingsSaveRepo(btn) {
+// 设置页通用行保存：收集行内 [data-f] → 调 upsert → 重载（三区共用同一套逻辑）
+function settingsSaveRow(btn, upsertFn, reloadFn) {
   var tr = btn.closest('tr');
   var payload = {};
   tr.querySelectorAll('[data-f]').forEach(function (el) { payload[el.getAttribute('data-f')] = el.value.trim(); });
-  Api.upsertSvnRepo(payload).then(function () { settingsLoadRepos(); })
-    .catch(function (e) { alert('保存失败：' + (e.message || e)); });
+  upsertFn(payload).then(reloadFn).catch(function (e) { alert('保存失败：' + (e.message || e)); });
 }
+function settingsSaveRepo(btn) { settingsSaveRow(btn, Api.upsertSvnRepo, settingsLoadRepos); }
 
 // ---- 区2：文档路径映射（全局，不分项目）----
 function settingsLoadDocPaths() {
@@ -137,13 +84,7 @@ function settingsAddDocPath() {
   '<td><button class="btn ghost sm" onclick="settingsSaveDocPath(this)">保存</button></td>';
   tb.appendChild(tr);
 }
-function settingsSaveDocPath(btn) {
-  var tr = btn.closest('tr');
-  var payload = {};
-  tr.querySelectorAll('[data-f]').forEach(function (el) { payload[el.getAttribute('data-f')] = el.value.trim(); });
-  Api.upsertSvnDocPath(payload).then(function () { settingsLoadDocPaths(); })
-    .catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
+function settingsSaveDocPath(btn) { settingsSaveRow(btn, Api.upsertSvnDocPath, settingsLoadDocPaths); }
 
 // ---- 区3：本机本地路径 ----
 function settingsLoadLocalPaths() {
@@ -173,10 +114,4 @@ function settingsAddLocalPath() {
   '<td><button class="btn ghost sm" onclick="settingsSaveLocalPath(this)">保存</button></td>';
   tb.appendChild(tr);
 }
-function settingsSaveLocalPath(btn) {
-  var tr = btn.closest('tr');
-  var payload = {};
-  tr.querySelectorAll('[data-f]').forEach(function (el) { payload[el.getAttribute('data-f')] = el.value.trim(); });
-  Api.upsertLocalPath(payload).then(function () { settingsLoadLocalPaths(); })
-    .catch(function (e) { alert('保存失败：' + (e.message || e)); });
-}
+function settingsSaveLocalPath(btn) { settingsSaveRow(btn, Api.upsertLocalPath, settingsLoadLocalPaths); }

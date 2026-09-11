@@ -23,6 +23,8 @@ logs/
 temp/
 *.tmp
 *.bak
+# 模板历史备份（SDP_占位符版.docx.bak_xxx，本地留档不入库）
+*.docx.bak_*
 
 # ===== 验证实验区（lab/ 仅本地验证，不入库）=====
 lab/
@@ -68,3 +70,6 @@ dist/
 # ===== Word/Office 临时锁文件（用 Word 打开文档时生成 ~$xxx.docx，不入库）=====
 ~$*
 *.asd
+
+# ===== 浏览器自动化工具缓存（Playwright 快照/日志，运行产物不入库）=====
+.playwright-cli/

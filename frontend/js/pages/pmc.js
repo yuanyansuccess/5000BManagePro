@@ -5,6 +5,12 @@
 // 公共 tag 辅助（对标效果图 tag(cls, txt)）
 function tag(cls, txt) { return '<span class="tag ' + cls + '">' + txt + '</span>'; }
 
+// 页面跳转：阶段产出块按钮跳对应子页面（参数容错去空格，如 go(' pp')）
+function go(id) {
+  var pid = (id || '').trim();
+  if (pid) location.href = pid + '.html';
+}
+
 // 5 阶段名称（对标 PMC_STEPS）
 var PMC_PHASES = ['项目策划', '软件需求分析', '设计实现', '软件测试', '验收结项'];
 var PMC_CUR_PHASE = 0; // 默认策划阶段；真正的"当前阶段"由步骤条的 active 控制

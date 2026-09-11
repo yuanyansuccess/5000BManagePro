@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
-"""
-设置接口（API 层）。
+"""设置接口（API 层）。
 作者：袁燕
 功能：SVN 配置（仓库/文档路径映射/本机本地路径）的 CRUD，统一存库，设置页可配。
-设计：不含 SQL（P18），逻辑走 Service；前后端 JSON 通讯用 ApiResp。
+设计：路由仅做校验与转换（P10），数据操作全部走 settings_dao（P18 不含 SQL）。
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.schemas import ApiResp
-from backend.db.models import SvnRepoConfig, SvnDocPathMap, LocalSvnPath
+from backend.dao import settings_dao
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -18,7 +17,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 # ===== SVN 仓库配置 =====
 @router.get("/svn-repos", response_model=ApiResp)
 def list_svn_repos(db: Session = Depends(get_db)):
-    rows = db.query(SvnRepoConfig).all()
+    rows = settings_dao.SvnRepoConfigDao.get_all(db)
     return ApiResp(data=[{
         "projectId": r.project_id, "repoUrl": r.repo_url,
         "username": r.username, "password": r.password,
@@ -31,25 +30,17 @@ def upsert_svn_repo(body: dict, db: Session = Depends(get_db)):
     pid = body.get("projectId")
     if not pid or not body.get("repoUrl"):
         raise HTTPException(status_code=400, detail="projectId/repoUrl 必填")
-    obj = db.query(SvnRepoConfig).filter(SvnRepoConfig.project_id == pid).first()
-    if not obj:
-        obj = SvnRepoConfig(project_id=pid)
-        db.add(obj)
-    obj.repo_url = body["repoUrl"]
-    obj.username = body.get("username", "admin")
-    obj.password = body.get("password", "123456")
-    obj.base_rel_path = body.get("baseRelPath", "trunk/develop")
-    db.commit()
+    settings_dao.SvnRepoConfigDao.upsert(
+        db, pid, body["repoUrl"],
+        body.get("username", "admin"), body.get("password", "123456"),
+        body.get("baseRelPath", "trunk/develop"))
     return ApiResp(message="已保存仓库配置 " + pid)
 
 
-# ===== 文档路径映射（不分项目，全局 GLOBAL：所有项目 SVN 相对路径几乎一致）=====
-GLOBAL_PID = "GLOBAL"
-
-
+# ===== 文档路径映射（全局 GLOBAL：所有项目 SVN 相对路径几乎一致）=====
 @router.get("/svn-doc-paths", response_model=ApiResp)
 def list_svn_doc_paths(db: Session = Depends(get_db)):
-    rows = db.query(SvnDocPathMap).filter(SvnDocPathMap.project_id == GLOBAL_PID).all()
+    rows = settings_dao.SvnDocPathMapDao.get_all_global(db)
     return ApiResp(data=[{
         "projectId": r.project_id, "templateName": r.template_name,
         "relPath": r.rel_path,
@@ -61,22 +52,15 @@ def upsert_svn_doc_path(body: dict, db: Session = Depends(get_db)):
     tpl = body.get("templateName")
     rel = body.get("relPath")
     if not tpl or not rel:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="templateName/relPath 必填")
-    obj = db.query(SvnDocPathMap).filter(
-        SvnDocPathMap.project_id == GLOBAL_PID, SvnDocPathMap.template_name == tpl).first()
-    if not obj:
-        obj = SvnDocPathMap(project_id=GLOBAL_PID, template_name=tpl)
-        db.add(obj)
-    obj.rel_path = rel
-    db.commit()
+    settings_dao.SvnDocPathMapDao.upsert(db, tpl, rel)
     return ApiResp(message="已保存文档路径映射(全局) " + tpl)
 
 
 # ===== 本机本地路径 =====
 @router.get("/local-paths", response_model=ApiResp)
 def list_local_paths(db: Session = Depends(get_db)):
-    rows = db.query(LocalSvnPath).all()
+    rows = settings_dao.LocalSvnPathDao.get_all(db)
     return ApiResp(data=[{
         "machineId": r.machine_id, "userId": r.user_id,
         "projectId": r.project_id, "localPath": r.local_path,
@@ -90,14 +74,6 @@ def upsert_local_path(body: dict, db: Session = Depends(get_db)):
     pid = body.get("projectId")
     lp = body.get("localPath")
     if not mid or not uid or not pid or not lp:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="machineId/userId/projectId/localPath 必填")
-    obj = db.query(LocalSvnPath).filter(
-        LocalSvnPath.machine_id == mid, LocalSvnPath.user_id == uid,
-        LocalSvnPath.project_id == pid).first()
-    if not obj:
-        obj = LocalSvnPath(machine_id=mid, user_id=uid, project_id=pid)
-        db.add(obj)
-    obj.local_path = lp
-    db.commit()
+    settings_dao.LocalSvnPathDao.upsert(db, mid, uid, pid, lp)
     return ApiResp(message="已保存本地路径 " + pid)

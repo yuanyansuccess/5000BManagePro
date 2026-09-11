@@ -78,9 +78,14 @@ class DataService:
         p = db.query(Project).filter(Project.project_id == project_id).first()
         if not p:
             return None
+        import json as _json
         for k, v in payload.items():
-            if v is not None and hasattr(p, k):
-                setattr(p, k, v)
+            if v is None or not hasattr(p, k):
+                continue
+            # 袁总 2026-09-03：cfg_items 前端传数组，落库需序列化为 JSON 字符串（Text 列）
+            if k == "cfg_items" and isinstance(v, (list, dict)):
+                v = _json.dumps(v, ensure_ascii=False)
+            setattr(p, k, v)
         db.commit()
         db.refresh(p)
         return p

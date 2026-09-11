@@ -45,7 +45,6 @@
 .mc-card .mc-rpt { font-size: 13px; color: var(--text-2); }
 .mc-card .mc-st { font-size: 12px; color: var(--text-3); }
 .mc-card .mc-ops { display: flex; gap: 8px; }
-.mc-card .btn.sm { height: 32px; min-width: 60px; border-radius: 8px; background: var(--primary); color: #fff; border: none; font-size: 13px; padding: 0 12px; cursor: pointer; }
 .btn.sm { height: 32px; min-width: 60px; border-radius: 8px; background: var(--primary); color: #fff; border: none; font-size: 13px; padding: 0 12px; cursor: pointer; }
 .btn.sm.ghost { background: #fff; color: var(--text-2); border: 1px solid var(--border); }
 .svn-ok { display: inline-block; color: var(--success-deep); border: 1px solid var(--success); border-radius: 8px; padding: 1px 8px; font-size: 12px; margin-right: 4px; background: var(--success-bg); }
@@ -59,9 +58,6 @@
 .out-ops { white-space: nowrap; }
 .oe-hint { color: #9aa6b8; font-size: 12px; }
 .ctr { text-align: center; }
-
-/* 产出表内联面板 */
-.oe-panel { border: 1px solid #13c2c2; background: #f6fffe; border-radius: 10px; padding: 14px; margin: 8px 0; }
 
 /* ===== kv 键值对（测量状态等） ===== */
 .kv { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 8px 14px; background: #f7f8fa; border-radius: 10px; }

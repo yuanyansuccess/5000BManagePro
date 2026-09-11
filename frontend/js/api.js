@@ -34,30 +34,12 @@ async function request(method, path, body) {
 }
 
 const Api = {
-  health: () => request("GET", "/api/health"),
   // 登录认证
   login: (account, password) => request("POST", "/api/users/login", { account, password }),
-  getMe: () => {
-    const token = sessionStorage.getItem("token") || "";
-    const headers = { "Content-Type": "application/json" };
-    if (token) headers["Authorization"] = "Bearer " + token;
-    return fetch(API_BASE + "/api/users/me", { headers }).then(function(r) { return r.json(); }).catch(function() { return null; });
-  },
-  // 需求（RDM）
-  listRequirements: () => request("GET", "/api/requirements"),
-  createRequirement: (payload) => request("POST", "/api/requirements", payload),
-  deleteRequirement: (reqId) => request("DELETE", "/api/requirements/" + reqId),
   // 风险（PP/PMC）
   listRisks: () => request("GET", "/api/risks"),
   createRisk: (payload) => request("POST", "/api/risks", payload),
   deleteRisk: (riskId) => request("DELETE", "/api/risks/" + riskId),
-  // 相关方（PP A14）
-  listStakeholders: () => request("GET", "/api/stakeholders"),
-  createStakeholder: (payload) => request("POST", "/api/stakeholders", payload),
-  deleteStakeholder: (role) => request("DELETE", "/api/stakeholders/" + role),
-  // 告警日志
-  listAlerts: (params) => request("GET", "/api/alerts" + (params ? "?" + params : "")),
-  updateAlertStatus: (id, status) => request("PATCH", "/api/alerts/" + id + "/status", { status }),
   // 用户（RBAC）
   listUsers: () => request("GET", "/api/users"),
   createUser: (payload) => request("POST", "/api/users", payload),
@@ -152,30 +134,26 @@ const Api = {
   createSchedule: (pid, payload) => request("POST", "/api/pp/" + pid + "/schedule", payload),
   updateSchedule: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/schedule/" + rid, payload),
   deleteSchedule: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/schedule/" + rid),
-  listProjStakeholders: (pid) => request("GET", "/api/pp/" + pid + "/stakeholders"),
-  createProjStakeholder: (pid, payload) => request("POST", "/api/pp/" + pid + "/stakeholders", payload),
-  updateProjStakeholder: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/stakeholders/" + rid, payload),
-  deleteProjStakeholder: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/stakeholders/" + rid),
   // 利益相关方参与计划（R121 附录B 矩阵）
   listStakeholderPlan: (pid) => request("GET", "/api/pp/" + pid + "/stakeholder_plan"),
   updateStakeholderPlanRow: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/stakeholder_plan/" + rid, payload),
-  // 软件估算收敛项（对标 R105-PP-GH-01/02 两轮，按项目维度+轮次）
-  listEstItems: (pid, roundNo) => request("GET", "/api/pp/" + pid + "/est-items?round_no=" + (roundNo || 1)),
-  createEstItem: (pid, payload) => request("POST", "/api/pp/" + pid + "/est-items", payload),
-  updateEstItem: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/est-items/" + rid, payload),
-  deleteEstItem: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/est-items/" + rid),
   // 风险编辑（PUT 只更新传入字段）
   updateRisk: (riskId, payload) => request("PUT", "/api/risks/" + riskId, payload),
-  // 进度任务项（R105 .mpp 导入，阶段+全部任务，为双周任务表储备）
-  listScheduleTasks: (pid) => request("GET", "/api/pp/" + pid + "/schedule-tasks"),
-  createScheduleTask: (pid, payload) => request("POST", "/api/pp/" + pid + "/schedule-tasks", payload),
-  updateScheduleTask: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/schedule-tasks/" + rid, payload),
-  deleteScheduleTask: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/schedule-tasks/" + rid),
   // 项目人员（按项目维度，文档签署角色基础）
   listMembers: (pid) => request("GET", "/api/pp/" + pid + "/members"),
   createMember: (pid, payload) => request("POST", "/api/pp/" + pid + "/members", payload),
   updateMember: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/members/" + rid, payload),
   deleteMember: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/members/" + rid),
+  // 组织机构表（表22，对标 R121 表29）
+  listOrgChart: (pid) => request("GET", "/api/pp/" + pid + "/org-chart"),
+  createOrgChart: (pid, payload) => request("POST", "/api/pp/" + pid + "/org-chart", payload),
+  updateOrgChart: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/org-chart/" + rid, payload),
+  deleteOrgChart: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/org-chart/" + rid),
+  // 配置项与基线（表13 基线列表 / 表19 配置项）
+  listConfigItems: (pid) => request("GET", "/api/pp/" + pid + "/config-items"),
+  createConfigItem: (pid, payload) => request("POST", "/api/pp/" + pid + "/config-items", payload),
+  updateConfigItem: (pid, rid, payload) => request("PUT", "/api/pp/" + pid + "/config-items/" + rid, payload),
+  deleteConfigItem: (pid, rid) => request("DELETE", "/api/pp/" + pid + "/config-items/" + rid),
 };
 
 // 当前项目缓存：启动时拉一次，全平台用（代替硬编码 R121/R105）

@@ -5,13 +5,14 @@
      供前端项目策划页编辑；这些数据最终随 SDP 生成并受控于 SVN。
 设计：路由仅做校验与转换（P10），业务聚合交由 data_service / DAO（P18 不含 SQL）。
 """
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from backend.db.session import get_db
 from backend.schemas import ApiResp
 from backend.db.models import HwRes, SwRes, DocScale, CodeScale, SchedulePhase
 from backend.dao import hw_res_dao, sw_res_dao, doc_scale_dao, code_scale_dao, schedule_dao
+from backend.dao import est_item_dao, schedule_task_dao, project_member_dao
 from backend.db.session import ensure_tables  # 幂等兜底：防表缺失时接口 500
 
 router = APIRouter(prefix="/api/pp", tags=["pp-resources"])
@@ -275,7 +276,6 @@ def delete_sched(project_id: str, rid: int, db=Depends(get_db)):
 
 
 # ---------- 软件估算收敛项（Delphi 3 轮，按项目维度，前端可编辑）----------
-from backend.db.models import EstItem
 
 
 class EstItemIn(BaseModel):
@@ -295,10 +295,8 @@ class EstItemIn(BaseModel):
 @router.get("/{project_id}/est-items")
 def list_est(project_id: str, round_no: int = 1, db=Depends(get_db)):
     """估算收敛项列表，按轮次过滤（对标 R105-PP-GH-01/02）。"""
-    ensure_tables(EstItem)
-    rows = db.query(EstItem).filter(
-        EstItem.project_id == project_id, EstItem.round_no == round_no
-    ).order_by(EstItem.seq).all()
+    ensure_tables(est_item_dao.EstItemDao.model)
+    rows = est_item_dao.EstItemDao.list_by_round(db, project_id, round_no)
     return ApiResp(data=[{
         "id": r.id, "roundNo": r.round_no, "cfg_item": r.cfg_item, "wbs2": r.wbs2,
         "est1": r.est1, "est2": r.est2, "est3": r.est3,
@@ -310,36 +308,29 @@ def list_est(project_id: str, round_no: int = 1, db=Depends(get_db)):
 @router.post("/{project_id}/est-items")
 def create_est(project_id: str, body: EstItemIn, db=Depends(get_db)):
     payload = {k: v for k, v in body.dict().items() if v is not None}
-    obj = EstItem(project_id=project_id, **payload)
-    db.add(obj)
-    db.commit()
+    obj = est_item_dao.EstItemDao.create(db, est_item_dao.EstItemDao.model(project_id=project_id, **payload))
     return obj.id
 
 
 @router.put("/{project_id}/est-items/{rid}")
 def update_est(project_id: str, rid: int, body: EstItemIn, db=Depends(get_db)):
     payload = {k: v for k, v in body.dict().items() if v is not None}
-    obj = db.query(EstItem).filter(EstItem.id == rid, EstItem.project_id == project_id).first()
+    obj = est_item_dao.EstItemDao.get_in_project(db, rid, project_id)
     if not obj:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="估算项不存在")
-    for k, v in payload.items():
-        setattr(obj, k, v)
-    db.commit()
+    est_item_dao.EstItemDao.update_fields(db, rid, payload)
     return {"ok": True}
 
 
 @router.delete("/{project_id}/est-items/{rid}")
 def delete_est(project_id: str, rid: int, db=Depends(get_db)):
-    obj = db.query(EstItem).filter(EstItem.id == rid, EstItem.project_id == project_id).first()
+    obj = est_item_dao.EstItemDao.get_in_project(db, rid, project_id)
     if obj:
-        db.delete(obj)
-        db.commit()
+        est_item_dao.EstItemDao.delete(db, rid)
     return {"ok": True}
 
 
 # ---------- 进度任务项（R105 .mpp 导入，两维度：阶段 + 全部任务，为双周任务表储备）----------
-from backend.db.models import ScheduleTask
 
 
 class ScheduleTaskIn(BaseModel):
@@ -360,9 +351,8 @@ class ScheduleTaskIn(BaseModel):
 
 @router.get("/{project_id}/schedule-tasks")
 def list_schedule_tasks(project_id: str, db=Depends(get_db)):
-    ensure_tables(ScheduleTask)
-    rows = db.query(ScheduleTask).filter(
-        ScheduleTask.project_id == project_id).order_by(ScheduleTask.seq).all()
+    ensure_tables(schedule_task_dao.ScheduleTaskDao.model)
+    rows = schedule_task_dao.ScheduleTaskDao.list_by_project(db, project_id)
     return ApiResp(data=[{
         "id": r.id, "phaseName": r.phase_name, "taskNo": r.task_no,
         "outlineLevel": r.outline_level, "isSummary": r.is_summary,
@@ -377,86 +367,195 @@ def list_schedule_tasks(project_id: str, db=Depends(get_db)):
 @router.post("/{project_id}/schedule-tasks")
 def create_schedule_task(project_id: str, body: ScheduleTaskIn, db=Depends(get_db)):
     payload = {k: v for k, v in body.dict().items() if v is not None}
-    obj = ScheduleTask(project_id=project_id, **payload)
-    db.add(obj)
-    db.commit()
+    obj = schedule_task_dao.ScheduleTaskDao.create(
+        db, schedule_task_dao.ScheduleTaskDao.model(project_id=project_id, **payload))
     return obj.id
 
 
 @router.put("/{project_id}/schedule-tasks/{rid}")
 def update_schedule_task(project_id: str, rid: int, body: ScheduleTaskIn, db=Depends(get_db)):
     payload = {k: v for k, v in body.dict().items() if v is not None}
-    obj = db.query(ScheduleTask).filter(
-        ScheduleTask.id == rid, ScheduleTask.project_id == project_id).first()
+    obj = schedule_task_dao.ScheduleTaskDao.get_in_project(db, rid, project_id)
     if not obj:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="任务不存在")
-    for k, v in payload.items():
-        setattr(obj, k, v)
-    db.commit()
+    schedule_task_dao.ScheduleTaskDao.update_fields(db, rid, payload)
     return {"ok": True}
 
 
 @router.delete("/{project_id}/schedule-tasks/{rid}")
 def delete_schedule_task(project_id: str, rid: int, db=Depends(get_db)):
-    obj = db.query(ScheduleTask).filter(
-        ScheduleTask.id == rid, ScheduleTask.project_id == project_id).first()
+    obj = schedule_task_dao.ScheduleTaskDao.get_in_project(db, rid, project_id)
     if obj:
-        db.delete(obj)
-        db.commit()
+        schedule_task_dao.ScheduleTaskDao.delete(db, rid)
     return {"ok": True}
 
 
 # ---------- 项目人员（用户管理「项目人员」，文档签署角色基础，按项目维度）----------
-from backend.db.models import ProjectMember
 
 
 class ProjectMemberIn(BaseModel):
+    # 项目方铁律：字段命名全链路统一。前端 JS 用 camelCase，DB/后端用 snake_case，
+    # 故多词字段统一加 camelCase 别名（populate_by_name 允许两种写法都接受），
+    # 避免"前端传 skillReq、后端期望 skill_req"导致该字段被静默丢弃（2026-09-02 教训）。
+    model_config = ConfigDict(populate_by_name=True)
     name: Optional[str] = None
     role: Optional[str] = None
     team: Optional[str] = None
     no: Optional[str] = None
     svn: Optional[str] = None
     auth: Optional[str] = None
+    # 表23 人力资源表扩展列（项目方 2026-09-02，对标 R121 表30）
+    skill_req: Optional[str] = Field(default=None, alias="skillReq")
+    join_project: Optional[str] = Field(default=None, alias="joinProject")
+    period: Optional[str] = None
+    effort_pct: Optional[str] = Field(default=None, alias="effortPct")
     seq: Optional[int] = None
 
 
 @router.get("/{project_id}/members")
 def list_members(project_id: str, db=Depends(get_db)):
-    ensure_tables(ProjectMember)
-    rows = db.query(ProjectMember).filter(ProjectMember.project_id == project_id).order_by(ProjectMember.seq).all()
+    ensure_tables(project_member_dao.ProjectMemberDao.model)
+    rows = project_member_dao.ProjectMemberDao.list_by_project(db, project_id)
     return ApiResp(data=[{
         "id": r.id, "name": r.name, "role": r.role, "team": r.team,
         "no": r.no, "svn": r.svn, "auth": r.auth, "seq": r.seq,
+        "skillReq": r.skill_req, "joinProject": r.join_project,
+        "period": r.period, "effortPct": r.effort_pct,
     } for r in rows])
 
 
 @router.post("/{project_id}/members")
 def create_member(project_id: str, body: ProjectMemberIn, db=Depends(get_db)):
     payload = {k: v for k, v in body.dict().items() if v is not None}
-    obj = ProjectMember(project_id=project_id, **payload)
-    db.add(obj)
-    db.commit()
+    obj = project_member_dao.ProjectMemberDao.create(
+        db, project_member_dao.ProjectMemberDao.model(project_id=project_id, **payload))
     return obj.id
 
 
 @router.put("/{project_id}/members/{rid}")
 def update_member(project_id: str, rid: int, body: ProjectMemberIn, db=Depends(get_db)):
     payload = {k: v for k, v in body.dict().items() if v is not None}
-    obj = db.query(ProjectMember).filter(ProjectMember.id == rid, ProjectMember.project_id == project_id).first()
+    obj = project_member_dao.ProjectMemberDao.get_in_project(db, rid, project_id)
     if not obj:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="项目人员不存在")
-    for k, v in payload.items():
-        setattr(obj, k, v)
-    db.commit()
+    project_member_dao.ProjectMemberDao.update_fields(db, rid, payload)
     return {"ok": True}
 
 
 @router.delete("/{project_id}/members/{rid}")
 def delete_member(project_id: str, rid: int, db=Depends(get_db)):
-    obj = db.query(ProjectMember).filter(ProjectMember.id == rid, ProjectMember.project_id == project_id).first()
+    obj = project_member_dao.ProjectMemberDao.get_in_project(db, rid, project_id)
     if obj:
-        db.delete(obj)
-        db.commit()
+        project_member_dao.ProjectMemberDao.delete(db, rid)
+    return {"ok": True}
+
+
+# ---------- 组织机构表（表22，对标 R121 表29；文档生成角色/代表来源）----------
+from backend.dao import org_chart_dao as _org_dao
+
+
+class OrgChartIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    org_role: Optional[str] = Field(default=None, alias="orgRole")
+    representative: Optional[str] = None
+    duty: Optional[str] = None
+    seq: Optional[int] = None
+
+
+@router.get("/{project_id}/org-chart")
+def list_org_chart(project_id: str, db=Depends(get_db)):
+    ensure_tables(_org_dao.OrgChartDao.model)
+    rows = _org_dao.OrgChartDao.list_by_project(db, project_id)
+    return ApiResp(data=[{
+        "id": r.id, "orgRole": r.org_role, "representative": r.representative,
+        "duty": r.duty, "seq": r.seq,
+    } for r in rows])
+
+
+@router.post("/{project_id}/org-chart")
+def create_org_chart(project_id: str, body: OrgChartIn, db=Depends(get_db)):
+    ensure_tables(_org_dao.OrgChartDao.model)
+    payload = {k: v for k, v in body.dict().items() if v is not None}
+    if not payload.get("org_role"):
+        raise HTTPException(status_code=400, detail="组织机构/角色必填")
+    obj = _org_dao.OrgChartDao.create(db, _org_dao.OrgChartDao.model(project_id=project_id, **payload))
+    return {"ok": True, "id": obj.id}
+
+
+@router.put("/{project_id}/org-chart/{rid}")
+def update_org_chart(project_id: str, rid: int, body: OrgChartIn, db=Depends(get_db)):
+    payload = {k: v for k, v in body.dict().items() if v is not None}
+    obj = _org_dao.OrgChartDao.get_in_project(db, rid, project_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="组织机构项不存在")
+    _org_dao.OrgChartDao.update_fields(db, rid, payload)
+    return {"ok": True}
+
+
+@router.delete("/{project_id}/org-chart/{rid}")
+def delete_org_chart(project_id: str, rid: int, db=Depends(get_db)):
+    obj = _org_dao.OrgChartDao.get_in_project(db, rid, project_id)
+    if obj:
+        _org_dao.OrgChartDao.delete(db, rid)
+    return {"ok": True}
+
+
+# ---------- 配置项与基线（表13 基线列表 / 表19 配置项，CM）----------
+from backend.dao import config_item_dao as _ci_dao
+
+
+class ConfigItemIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    ci_id: Optional[str] = Field(default=None, alias="ciId")
+    name: Optional[str] = None
+    baseline: Optional[str] = None          # 功能基线/分配基线/产品基线
+    baseline_name: Optional[str] = Field(default=None, alias="baselineName")     # R105 / R105_0201 / R105_0202
+    baseline_id: Optional[str] = Field(default=None, alias="baselineId")         # R105_JG_V1.00 等
+    status: Optional[str] = None
+    path: Optional[str] = None
+
+
+@router.get("/{project_id}/config-items")
+def list_config_items(project_id: str, db=Depends(get_db)):
+    ensure_tables(_ci_dao.ConfigItemDao.model)
+    rows = _ci_dao.ConfigItemDao.list_by_project(db, project_id)
+    return ApiResp(data=[{
+        "id": r.id, "ciId": r.ci_id, "name": r.name, "baseline": r.baseline,
+        "baselineName": r.baseline_name, "baselineId": r.baseline_id,
+        "status": r.status, "path": r.path,
+    } for r in rows])
+
+
+@router.get("/{project_id}/baselines")
+def list_baselines(project_id: str, db=Depends(get_db)):
+    """基线聚合视图（多配置项用顿号连接），供前端预览与文档生成同源。"""
+    ensure_tables(_ci_dao.ConfigItemDao.model)
+    return ApiResp(data=_ci_dao.ConfigItemDao.list_baselines(db, project_id))
+
+
+@router.post("/{project_id}/config-items")
+def create_config_item(project_id: str, body: ConfigItemIn, db=Depends(get_db)):
+    ensure_tables(_ci_dao.ConfigItemDao.model)
+    payload = {k: v for k, v in body.dict().items() if v is not None}
+    if not payload.get("ci_id"):
+        raise HTTPException(status_code=400, detail="配置项标识必填")
+    obj = _ci_dao.ConfigItemDao.create(db, _ci_dao.ConfigItemDao.model(project_id=project_id, **payload))
+    return {"ok": True, "id": obj.id}
+
+
+@router.put("/{project_id}/config-items/{rid}")
+def update_config_item(project_id: str, rid: int, body: ConfigItemIn, db=Depends(get_db)):
+    payload = {k: v for k, v in body.dict().items() if v is not None}
+    obj = _ci_dao.ConfigItemDao.get_in_project(db, rid, project_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="配置项不存在")
+    _ci_dao.ConfigItemDao.update_fields(db, rid, payload)
+    return {"ok": True}
+
+
+@router.delete("/{project_id}/config-items/{rid}")
+def delete_config_item(project_id: str, rid: int, db=Depends(get_db)):
+    obj = _ci_dao.ConfigItemDao.get_in_project(db, rid, project_id)
+    if obj:
+        _ci_dao.ConfigItemDao.delete(db, rid)
     return {"ok": True}

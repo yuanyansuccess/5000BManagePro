@@ -36,6 +36,9 @@ _PROJ_FIELD_MAP = {
     # ===== 项目组织角色（7.2.1 人力资源 / 相关方清单，前端录入=数据库=生成文档）=====
     "requirement": "requirement", "coder": "coder", "measure": "measure",
     "projLead": "proj_lead", "sysEng": "sys_eng",
+    # ===== 袁总 2026-09-03：软件配置项清单（1.1 标识章节 b）动态化）=====
+    # 前端传数组（[{"name":"…","code":"…"}]），落库为 JSON 字符串。
+    "cfgItems": "cfg_items",
 }
 
 
@@ -58,7 +61,34 @@ def _proj_out(p: Project) -> dict:
         # 项目组织角色（回传前端用于"修改项目"预填）
         "requirement": p.requirement, "coder": p.coder, "measure": p.measure,
         "projLead": p.proj_lead, "sysEng": p.sys_eng,
+        # 袁总 2026-09-03：软件配置项清单（JSON 字符串 -> 数组回传前端）
+        "cfgItems": _cfg_items_out(p.cfg_items),
     }
+
+
+def _cfg_items_out(raw):
+    """配置项清单：库里是 JSON 字符串，回传前端为数组（便于表格编辑）。"""
+    import json
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, list) else [v]
+    except Exception:
+        return []
+
+
+def _cfg_items_to_db(val):
+    """前端传数组/字符串，落库统一为 JSON 字符串（Text 列）；空值返回 None。"""
+    import json
+    if val is None:
+        return None
+    if isinstance(val, str):
+        return val  # 已传 JSON 字符串则原样存
+    try:
+        return json.dumps(val, ensure_ascii=False)
+    except Exception:
+        return None
 
 
 @router.get("/current", response_model=ApiResp)
@@ -116,6 +146,8 @@ def create_project(payload: dict, db: Session = Depends(get_db)):
         sw_name_host=payload.get("swNameHost"), sw_name_iap=payload.get("swNameIap"),
         ref_sdtd_doc_number=payload.get("refSdtdDocNumber"),
         ref_sqap_doc_number=payload.get("refSqapDocNumber"),
+        # 袁总 2026-09-03：软件配置项清单（前端数组 -> JSON 字符串存 Text 列）
+        cfg_items=_cfg_items_to_db(payload.get("cfgItems")),
     )
     # 若设为当前，先清其他
     if set_cur:

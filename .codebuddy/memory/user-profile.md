@@ -14,3 +14,11 @@
 - Git 账号：GitHub 实际推送身份 **yuanyansuccess**（SSH 协议，key 在 $USERPROFILE\.ssh\id_ed25519，已验证 `ssh -T` 返回 Hi yuanyansuccess）；全局 git config user.name=yuanyan/2500749455@qq.com 是另一套，勿混淆。智能柜仓库 remote: git@github.com:yuanyansuccess/QtSmartCabinet.git
 - 版本管理约定（袁总2026-08-13）：每次完成阶段性工作由袁总提醒后提交 GitHub；只提交代码，temp/logs/.pyc/.idea 不入库（已配 .gitignore）；禁止 git add -A 乱提交，需精准 add
 - 推送方式：用 SSH key（git@github.com:yuanyansuccess/5000BManagePro.git），**不用 PAT/HTTPS**；建库需在 GitHub 网页手动建或给 PAT（SSH key 不能建库，坑13）
+
+## 文档样式偏好（袁总确认）
+
+- **只读区保持无色**：Word 生成物中，平台数据/只读区域**不加任何底纹**
+  （不用 FFF2CC 等颜色区分可编辑与不可编辑）。
+  只读由 sdt（Content Control）锁定保证；加底色会导致打印呈灰白，故选择无色。
+- **页码必须联动**：“共 N 页”必须是 NUMPAGES 域且结果写在域内，
+  新增页后打开文档自动更新，不接受写死数字。

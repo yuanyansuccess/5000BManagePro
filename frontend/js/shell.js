@@ -21,7 +21,7 @@ const SHELL_MENU = [
 
 const SHELL_TITLES = {
   pp: '项目策划 PP', pmc: '项目监控 PMC', alert: '告警日志', tpl: '模板中心',
-  base: '基础数据', user: '用户管理', sys: '系统设置'
+  base: '基础数据', user: '用户管理', sys: '系统配置', settings: '系统设置'
 };
 
 // 当前项目名（单一数据源：后端 /api/projects/current 的 projectName；未加载时回退项目代号）
@@ -205,6 +205,41 @@ function closeMask() {
 }
 
 // ===== 项目配置（跨页面公共，项目方要求放到顶栏「修改项目」）=====
+// 袁总 2026-09-03（第三十三轮）：软件配置项清单动态编辑（需求3）
+// 配置项行：名称 + 编号（可选），可增删；保存时收集为 JSON 数组传到后端。
+function cfgAddRow(name, code) {
+  var wrap = document.getElementById('np-cfg-wrap');
+  if (!wrap) return;
+  var row = document.createElement('div');
+  row.className = 'cfg-row';
+  row.style.cssText = 'display:flex;gap:6px;margin:4px 0;align-items:center';
+  row.innerHTML = '<input class="cfg-name" placeholder="配置项名称，如 终点/轮载开关模拟器驱动软件" style="flex:2" value="' +
+    (name ? name.replace(/"/g, '&quot;') : '') + '">' +
+    '<input class="cfg-code" placeholder="编号，如 R105_0201（可选）" style="flex:1" value="' +
+    (code ? code.replace(/"/g, '&quot;') : '') + '">' +
+    '<button type="button" class="btn ghost" onclick="this.parentNode.remove()">删除</button>';
+  wrap.appendChild(row);
+}
+function cfgRender(items) {
+  var wrap = document.getElementById('np-cfg-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  var arr = (items && items.length) ? items :
+    [{ name: '终点/轮载开关模拟器驱动软件', code: 'R105_0201' }, { name: 'IAP下位机软件', code: 'R105_0202' }];
+  arr.forEach(function (it) { cfgAddRow(it.name, it.code); });
+}
+function cfgCollect() {
+  var wrap = document.getElementById('np-cfg-wrap');
+  if (!wrap) return [];
+  var out = [];
+  wrap.querySelectorAll('.cfg-row').forEach(function (row) {
+    var n = row.querySelector('.cfg-name').value.trim();
+    var c = row.querySelector('.cfg-code').value.trim();
+    if (n) out.push({ name: n, code: c });
+  });
+  return out;
+}
+
 // 新建/修改项目：editPid 非空为修改模式（全量字段预填）
 function settingsAddProj(editPid) {
   var isEdit = !!editPid;
@@ -224,7 +259,7 @@ function settingsAddProj(editPid) {
     '<div class="field"><label>阶段</label><select id="np-phase"><option>方案</option><option>初样</option><option>正样</option><option>定型</option><option>批产</option></select></div>' +
     '<div class="field"><label>软件版本</label><input id="np-swv" placeholder="如 V3.01"></div>' +
     '<div class="field"><label>立项日期（点击选择）</label><input id="np-start" type="date"></div>' +
-    '<div class="field"><label>批准日期（点击选择）</label><input id="np-approve" type="date"></div>' +
+    '<div class="field"><label>开发计划批准日期（点击选择）</label><input id="np-approve" type="date"></div>' +
     '<div class="field"><label>文档编号（留空自动 <代号>-SDP）</label><input id="np-doc"></div>' +
     '<div class="field"><label>IDE 版本</label><input id="np-ide" placeholder="如 Keil 4"></div>' +
     '<div class="field"><label>本机本地路径</label><input id="np-local" placeholder="D:/5000/R105"></div>' +
@@ -252,6 +287,11 @@ function settingsAddProj(editPid) {
     '<div class="field"><label>IAP 软件构件名</label><input id="np-swiap"></div>' +
     '<div class="field"><label>软件研制任务书编号</label><input id="np-sdtd"></div>' +
     '<div class="field"><label>软件质量保证计划编号</label><input id="np-sqap"></div>' +
+    '<div class="field span2 modal-sub">软件配置项（1.1 标识章节 b）动态化）</div>' +
+    '<div class="field span2"><label>配置项清单（数量与名称，可增删）</label>' +
+    '<div id="np-cfg-wrap" class="cfg-rows"></div>' +
+    '<button type="button" class="btn ghost" onclick="cfgAddRow()">+ 添加配置项</button>' +
+    '<div class="span2" style="font-size:12px;color:#888">说明：配置项名称将写入 1.1 标识章节「本软件有 N 个配置项：A、B」，编号（如 R105_0201）可选，用于基线/配置项标识联动。</div></div>' +
     foot +
     '<div id="np-msg" class="span2" style="color:#e74c3c;font-size:13px;min-height:16px;"></div>' +
     '</div><div class="modal-ft">' +
@@ -274,6 +314,8 @@ function settingsAddProj(editPid) {
       // 项目组织角色（三处一致：前端录入=数据库=生成文档）
       s('np-req', 'requirement'); s('np-coder', 'coder'); s('np-measure', 'measure');
       s('np-projlead', 'projLead'); s('np-syseng', 'sysEng');
+      // 袁总 2026-09-03：软件配置项清单预填
+      cfgRender(x.cfgItems);
     }).catch(function (e) { var m = document.getElementById('np-msg'); if (m) m.textContent = '加载失败：' + (e.message || e); });
   }
   document.body.insertAdjacentHTML('beforeend', html);
@@ -312,12 +354,13 @@ function settingsSaveNewProj() {
     swNameIap: document.getElementById('np-swiap').value.trim(),
     refSdtdDocNumber: document.getElementById('np-sdtd').value.trim(),
     refSqapDocNumber: document.getElementById('np-sqap').value.trim(),
-    // 项目组织角色（注入 7.2.1 人力资源表 / 相关方清单）
+    // 项目组织角色
     requirement: document.getElementById('np-req').value.trim(),
     coder: document.getElementById('np-coder').value.trim(),
     measure: document.getElementById('np-measure').value.trim(),
     projLead: document.getElementById('np-projlead').value.trim(),
     sysEng: document.getElementById('np-syseng').value.trim(),
+    cfgItems: cfgCollect(),
     setCurrent: document.getElementById('np-cur').checked,
   };
   Api.createProject(payload).then(function () {
@@ -348,9 +391,14 @@ function settingsSaveEditProj(pid) {
     // 项目组织角色（三处一致：前端=数据库=生成文档）
     requirement: g('np-req'), coder: g('np-coder'), measure: g('np-measure'),
     projLead: g('np-projlead'), sysEng: g('np-syseng'),
+    // 袁总 2026-09-03：软件配置项清单（始终全量保存，即使为空数组也覆盖，避免残留旧数据）
+    cfgItems: cfgCollect(),
   };
   var payload = {};
-  Object.keys(raw).forEach(function (k) { if (raw[k] !== '') payload[k] = raw[k]; });
+  Object.keys(raw).forEach(function (k) {
+    if (k === 'cfgItems') { payload[k] = raw[k]; return; }
+    if (raw[k] !== '') payload[k] = raw[k];
+  });
   if (Object.keys(payload).length === 0) { alert('没有需要保存的修改'); return; }
   Api.updateProject(pid, payload).then(function () {
     document.querySelector('.modal-mask').remove();

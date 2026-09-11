@@ -1,6 +1,462 @@
-# 会话动态日志
+﻿# 会话动态日志
 
 > 作者：袁燕 | 倒序看最新 | 跨会话生效
+
+## 2026-09-11（第四十八轮·手册v2专业化：四张SVG架构图+接口清单+部署指南）
+- 袁总反馈手册v1不够专业：缺重要函数/调用关系/图/部署方式，实习生难上手。重做 v2（15页26章节）。
+- 四张矢量图（temp/diagrams/manual_diagrams.html 单文件SVG，按绘图铁律：渐变节点+投影+正交箭头，Playwright 2x截图PNG嵌入Word，脚本 temp/shot_diagrams.js）：
+  d1 系统总体架构（五层：前端/路由/服务/DAO/存储 + Word COM 外挂 + 铁律红框）；d2 读写两条调用链+BaseDao通用方法表；d3 SDP生成流水线（四阶段22步后处理）；d4 前端结构（页面跳转/公共三件套/数据流）。
+- 制图修正三轮：Word COM 框与 table_builder 重叠、旧SVN长线残留穿文字、副标题灰字对比度不足（统一白色）、d3 阶段④缺节点、d4 文字溢出——全部目检确认后定稿。
+- 手册 v2 新增三大章：③核心调用关系与重要函数（后端9个/前端7个关键函数表）；⑥全量接口清单（基础13条+PP资源13组五件套+设置/文档/SVN 7条，前端方法一一对应）；⑦从零部署指南（环境要求表+十步部署+日常运维表+故障速查）。
+- 工具坑：playwright-core 在 playwright-cli 内嵌目录（D:/Programs/npm-global/node_modules/@playwright/cli/node_modules/）；docx skill 的 validate.py 需 Py3.10；docx-js 全局包需 NODE_PATH。
+- 手册再生成命令：NODE_PATH=D:\Programs\npm-global\node_modules node temp/build_manual.js；验证：python -X utf8 temp/verify_manual.py（Word COM 实开数章节）。
+
+## 2026-09-11（第四十七轮·批次D收官 + 三轮全量核对 + 开发维护手册交付）
+- 批次D完成：根目录垃圾清理（query/$null/.last_review、废弃第三方记忆结构 MEMORY.md+memory/+init_memory.py、docs/ 两个 ~$ Word 锁文件——项目真记忆在 .codebuddy/memory/，勿混淆）；.gitignore 补 .playwright-cli/；README 全面更新（最新目录树含 crud_table/doc_postprocess/scripts/archive、三条启动链路表格、分层铁律、测试验证命令）。
+- 三轮核对全绿：①后端 23 个接口全量冒烟（temp/check_round1_backend.py）+ 接口级 CRUD 40/40 + pytest 6/6；②前端 Playwright 8 页 0 console 错误 + user 页三模块行数正常 + pmc go() 跳转复核（sys 页调 go 报未定义是验证姿势错误——go 定义在 pmc.js，sys 页不加载）；③SDP 再生成 PAGEREF 88/88 对齐 + git status 全景审查（M 文件与四批重构一一对应、65 脚本 R 移动保历史、无异常改动）。
+- 交付《GJB5000B平台开发维护手册.docx》（docs/，12页24章节，Word COM 实开验证）：项目定位/技术栈/目录树逐行注释/请求旅程六步图/SDP生成流水线（含后处理步骤注释）/前后端模块地图（改什么看哪个文件）/编码规范铁律/常用任务How-To（新表30分钟六步/启动调试测试/FAQ排查）/Python速查（FastAPI/SQLAlchemy/Pydantic驼峰别名陷阱/标准库/自制工具）/记忆系统导读。生成脚本 temp/build_manual.js（docx-js，NODE_PATH 指向 D:\Programs\npm-global\node_modules）。
+- 注意：docx skill 的 validate.py 用 match 语法需 Python3.10，本机 3.9 会 SyntaxError，用 Word COM 实开验证代替。
+- 四批重构（A清淤/B收敛/C拆巨石/D精炼）至此全部完成，全部一轮一轮实测验证后交付。
+
+## 2026-09-11（第四十六轮·批次C拆巨石完成：doc_service 3022行→编排574+后处理2470，全量Word回归绿）
+- 袁总指令：拆巨石，别看出打补丁痕迹，不改功能只优化代码注释。
+- 拆分方案（temp/split_doc_service.py 一次性脚本按行号整块搬运，函数体逐字不变）：
+  - doc_service.py 3022→574行：纯编排（占位符映射 _meta_ph_map / 锚点读写 load_anchors/apply_module_snapshot/upsert_anchors / 必填校验 / generate_doc_bytes 生成流水线 + LOCKED_PLACEHOLDER_KEYS 锁定白名单），显式 import 22 个后处理函数，调用点零改动；
+  - 新建 doc_postprocess.py 2470行：全部 docx XML/包级后处理（只读保护sdt+perm/页眉阶段/表格居中紧凑字号宽度/空格清理/分页附录整理/1.1b配置项/签字页/占位符兜底/Word COM刷域），只操作 docx 文件不碰 DB，READONLY_TABLE_KEYS/STAGE_LETTER_MAP/REMOVE_SIGNATURE_USERS 随用方迁入；
+  - doc_engine.py 795→676行：删 5 个零引用死类（DocPageCounter/DocRangeProtector/DataResolver/TemplateMiner/ExcelInjector，-112行），只留 DocParser/WordInjector/SdpPlaceholderBuilder/SdpFiller 4 个在用类。
+- 顺带清掉的历史补丁痕迹（pyflakes 全清零）：_meta_ph_map 里 cm.svn_* 三个键重复定义两次、phase/start_date/svn_base 三个未使用变量、generate_doc_bytes 未使用的 import zipfile、doc_engine 未使用 import json 和 body 死赋值。
+- 全量验证（SDP 生成核心，按铁律 Word COM 实测渲染）：①HTTP 端到端生成 324957 bytes；②final_verify.py：总页 48（=第四十三轮签字页方案验收值）、1.1b 两行格式对、PAGEREF 88/88 对齐失配 0（final_verify 的附录"***错***"是其手写书签匹配到目录条目的脚本缺陷，以 verify_final_all 的全量比对为准）；③verify_final_all.py 双轨：表13/21 列宽对标 ✓、附录标题紧凑 ✓、前导空格 0 ✓、1.1b 两配置项 ✓、目录错位 0 条 ✓、签字页单页 ✓；④tests/test_sdp_generate.py 6/6 全绿（唯一失败项为存量过期断言：断言文本含"项目启动/项目策划"，但 build_schedule_tbl 按项目方 09-02 口径有意过滤 0 工作量阶段——DB 7 行渲染 5 行是正确设计，修正断言并注明口径）。
+- 注意：final_verify.py [2] 的书签匹配逻辑会误匹配目录条目（附录A _Toc21314 视觉=5 是目录页），其结论仅参考，权威判定以 verify_final_all.py + PAGEREF 全量比对为准。
+- 下一步：批次D（模板统一归 templates/、目录结构精炼、启动链文档化），等袁总指令。
+
+## 2026-09-11（第四十五轮·批次B收敛完成：前端CRUD工厂+后端DAO收敛，零功能变化）
+- 袁总指令：开始批次B，不改功能逻辑，只做解耦/僵尸代码合并，高内聚低耦合。
+- 前端收敛（-约350行重复代码）：新建 js/crud_table.js 通用「行内编辑 CRUD 表格」工厂（crudTable(cfg)：api/cols[num,color]/rowPrepend/btn/dialog[title支持fn延迟求值]/notify/loadRender/failSilent 全配置化），pp.js 四组（codeScale/hw/sw/docScale）+ user.js 三组（member/org/ci）10 组手抄五件套全改走工厂，对外函数名全保留（onclick 不受影响）；docScale 保留标题动态统计定制 load、渲染复用工厂 state；settings.js 三个相同 Save 合并为 settingsSaveRow；pp/user/settings 三个 html 引入 crud_table.js 并 bump 版本号破缓存。
+- 后端收敛：db/base.py BaseDao 增 list_by_project（子类 order_fields 声明排序）/delete_by_project/get_in_project（主键+项目双条件防越权）三个通用方法；10 个 dao 瘦身为纯声明（hw/sw/doc_scale/code_scale/stakeholder=id 序、schedule=phase_no、stakeholder_plan/org_chart/project_member=seq 序、config_item 保留 list_baselines 特有方法）；新建 est_item_dao/schedule_task_dao/settings_dao；resources.py 五组直连 DB（est-items/schedule-tasks/members/org-chart/config-items）全改走 dao，响应结构与 404 语义逐字保留；api/settings.py 零 SQL 化改调 settings_dao（名实相符）。
+- 验证全绿：①后端接口级 CRUD 实测 temp/test_batch_b_apis.py 40/40（五组 POST/GET/PUT/DELETE 全链路 + settings 三组 upsert + 400 语义，测完自清理；首轮 3 FAIL 均为测试脚本自身断言 bug：GET 返回 camelCase 断言用 snake_case、est-items 漏传 round_no——修正后全绿）；②Playwright 真实浏览器：user 页三模块渲染（8/5/31 行）、机构新增弹窗→保存 5→6 行→confirm 删除 6→5 全链路、pp 页四组渲染（hw/sw 6行、codeScale 2行 R105 真实值、docScale 标题 18类297页）+硬件行内保存、settings 文档路径保存，全部 0 console 错误。
+- 教训 reinforced：search_content 的 glob 参数（含 *.html 单独用）有时也不生效返回假 0（本轮 script src 搜索 0，去掉 glob 才出 8 条）——搜完 0 命中必须换方式复核再下结论。
+- 下一步：批次C拆 doc_service 巨石（3022行→generate/postprocess + 现有 table_builder/word_pages，doc_engine 只留4个在用类），需 Word COM 全量回归。
+
+## 2026-09-11（第四十四轮·工程重构批次A清淤完成）
+- 袁总拍板四批重构总方案：A清淤→B收敛→C拆巨石→D结构精炼，一批一确认；scripts 一次性脚本归档；占位页假数据本轮不动；doc_service 后续按职责拆 4 模块（generate/postprocess + 现有 table_builder/word_pages）。
+- 任务1完成：.idea/workspace.xml 删 4 条幽灵调试配置（verify_5000b_parse，指向已删的 lab/），只留「后端 FastAPI 调试」；新建根目录「打开前端页面.bat」（8080 未起则拉起 frontend_server 再开浏览器，已实跑验证；bat 必须 UTF-8 BOM + CRLF，否则 cmd 按 ANSI 解析错乱——重踩 start.bat 同款坑）。
+- 批次A清淤（全部 Playwright 实测 8 页 0 console 错误后交付）：
+  - 前端删死代码：settings.js 区0死链110行（settingsLoadProjects/SaveProj/SetCurProj/CfgItems 整链不可达，顶栏用 shell.js 自己的 settingsAddProj）、user.js PEOPLE 假名册、pp.js ppSvnCommit、api.js 22 个零调用方法（health/getMe/requirements×3/stakeholders旧×3/alerts×2/projStakeholders×4/est×4/scheduleTasks×4/listBaselines）；
+  - bug 修复：pmc.js go() 未定义（点击必报 ReferenceError）新增定义并容错去空格，实测 go(' pp') 跳 PP 页成功；shell.js SHELL_TITLES 补 settings 键（设置页面包屑原来显示英文）；ver-badge 从 pp.css 迁 common.css（它被 tpl/base/alert 三页用却只被 pp.html 加载——跨页样式丢失真 bug）；
+  - CSS 清理：删 base/sys/tpl/alert/pp 五个死 css 文件及 6 处 html link，user.css/pmc.css 死段清理；
+  - 后端：config.py 删 8 项零引用死配置（SVN_DEV/CTRL/PROD_REPO、SVN_POLL_INTERVAL、SVN_PLATFORM_BASE、ROLE_ADMIN/USER、AUTH_ITEMS），删 dao/seed_config_items_r105.py（零引用+绕过 SQLAlchemy）；
+  - scripts 65 个一次性脚本 git mv 归档到 scripts/archive/，根目录只留 6 个长期（frontend_server/init_db/seed_users/backup_db/svn_post_commit_push/code_review_scan）。
+- 教训：search_content 的 glob 花括号 `*.{js,html}` 不生效会返回假 0 命中，必须按 `*.js`/`*.html` 分开搜（本轮靠 ver-badge 疑点复查避免误删 .av/.ver-badge/mc-card 三个在用类）。
+- 后端重启脚本沉淀：temp/restart_backend_now.py（杀全部含 spawn_main 的 python→等 8000 DOWN→拉起→探活 /api/health）。
+- 下一步：批次B收敛（前端 CRUD 表格工厂 + 后端 9 个模板 DAO 收敛 + resources.py 统一走 dao + settings.py 补 service/dao），等袁总指令。
+
+## 2026-09-04（第四十三轮·v9：袁总怒斥"全未解决" + 签字页单页 + 上下文压缩入记忆）
+- 袁总怒：前几轮报"已解决"被认定骗人。本轮重新完整实测，逐项用 Word COM 渲染取真实页码核对，结论：项3/4/5/2 在当前代码其实已正确（表13/21列宽逐列=R121、1.1b双配置项、目录189书签0错位、目标表前导空格=0）。
+- 项1根因修复：_tighten_appendix_captions 原用精确字符串（双空格）匹配，文档实际附录标题含 \xa0 不间断空格，导致"从未匹配收紧"。改为空白归一化+关键词匹配，并删除标题上下所有连续空段；本轮删除3空段。实测附录A/C标题前0后1空段（后1为必要分节符段，非多余空白）OK紧凑。
+- 新增签字页：doc_service 新增 _ensure_signature_page（流水线 _fix_11b_cfg_items 之后调用），在文档末尾最终 sectPr 前插入"强制分页+标题+签字表(职务/签字/日期,6行:编制/审核/会签/标准化/批准/批准顾客代表)"，角色名取自 Project 签署字段（与封面同源）。修复 tblBorders 链式 set 返回 None 的 bug。实测单页（总页48，标题页=末行页=48）OK。
+- 项3（上下文压缩）：work-rules.md 新增 S10"上下文压缩铁律"（超50%主动压缩，调用 context-memory-manager，落盘 .codebuddy/memory）；automation_update 建"上下文压缩周期监控"每2小时巡检（automation-2）。
+- 验证脚本：temp/verify_final_all.py（Word COM 逐页 + XML 双轨，全绿）。落盘 sdp_gen.docx。
+
+
+## 2026-09-03（第四十二轮·v9：宽表竖排根因解决 + 真因汇总）
+- 袁总"宽表看不成"长期被忽视——上轮报告"v7 空格=0"只查了文本字符层面，**没查列宽与字号**。
+- 第四十二轮真因（坑59）：build_risks_tbl 列宽直接搬 R121 最小 142 dxa（中文 4 字需 ~800 dxa），文字每字一行"竖排"——袁总说的"看不成"
+- 修复：
+  1) `_simple_tbl` 与 `_cell` 加 size 参数（OOXML sz=21/20）
+  2) build_risks_tbl 列宽重排：描述 2200+措施 1700+其余最小 800（总 14300 在横向节内）
+  3) build_risks_tbl 内部 mkrow 调用传 size=20（8 号字），443 个 cell 全 8 号字
+  4) `_tbl_with_tbl_header` 加 size 透传，C.1 数据管理表 549 dxa 首列容"表C.1（续）"4 字横排
+- v9 字号实测分布：sz=20 共 443 个（风险表）+ sz=21 共 147 个（其他表/小字段）+ sz=32 共 21 个（章标题）
+- 袁总长期反映"反复说 10 次没改"的根因反复确认：**前端/旧浏览器缓存导致袁总看到的不是最新文档**（v8/v9 实测已全部正确）。本次明确告知袁总**直接打开 d: 0	empFile\sdp_r105_api_v9.docx 绕过前端**
+- 全量实测：占位符残留 0、目录页码 88 项全对、1.1 b 两个配置项带标识、空格 0、风险表 443 个 8 号字 cell、表C.1 续标题用 tblHeader 跨页重复
+
+## 2026-09-03（第四十一轮：袁总三发问题——改用"取证展示"而非口头汇报，6 项全部实测闭环）
+- 方法改变：不再报"已修复"，改为用 Word/lxml 取【文档里实际渲染的内容】逐条展示给袁总核对（temp/show_evidence.py、show_evidence2.py）。
+- 6 项实测结果与修复：
+  1. 1.1 b) 配置项：cfg_items 只输出名称、丢失标识 → 改为"名称（标识）"顿号连接。实际内容：「终点/轮载开关模拟器驱动软件有2个配置项：终点/轮载开关模拟器驱动软件（R105_0201）、IAP下位机软件（R105_0202）。」且值锁定。
+  2. C语言技术描述段可编辑：_merge_runs 与 run 级锁定冲突（坑57）→ 只合并未锁定 run。实测：锁定部分仅 ['终点/轮载开关模拟器驱动软件']，其余正文可编辑；且 {{sw.name_iap}} 正确替换为"主控板控制软件"。
+  3/5. 表5、表23/24/25、附录A/B、C.1 空格：实测表头与数据 repr 空格数=0、单元格 ind/tcMar 正常（表头 ['开发阶段','阶段比例','工程类工作量（人时）'…]，数据 ['需求','19%','8.72'…]）。
+  4. 目录页码：88 项逐一核对，目录值与正文实际页【完全一致】（1. 范围=5、1.2.3 项目相关方=6…）。
+  6. 附录C 末尾 3 个多余标题：模板静态残留与生成标题叠加（坑58）→ patch_tpl_trailing.py 清除。末尾现为：附录C数据管理表→表C.1 数据管理表→13行表→表C.1（续）→13行表→10行表。
+- 全量复核（temp/verify_final.py）：总页数 48、目录页码不一致 0、空白页 0、「人力资源表/硬件环境资源表/软件环境资源表/基线列表」标题与表格同页。
+- 关键说明：袁总前几轮看到的"未修复"现象，部分源于其手上的文档是旧版生成（前端与测试同用 /api/doc/{pid}/{tpl}/generate，同一链路），需重新点生成。
+- 配置项配置入口：顶栏「修改项目」弹窗内「软件配置项（1.1 标识章节 b）动态化）」区块（设置页的项目表格是死代码，无外部调用）。
+
+## 2026-09-03（第四十轮：袁总二发同样 7 问题——承认上一轮"假绿"，Word 实测复核后真修复）
+- 教训：第三十九轮报"12/12 PASS"后袁总二发同样问题 = 我的验证是【假绿】（断言只查 XML 属性，没验渲染结果）。本轮改用 Word COM 实测（逐页取文本对照）+ 全量目录页码核对，才暴露 3 个真缺陷。
+- 真修复（Word 实测验证）：
+  1. 目录页码：COM 子进程隔离取真值（坑53）+ 隐藏书签 ShowHidden（坑54）+ 按 instrText 逐个定位绕开 HYPERLINK 嵌套（坑54）→ **88 项目录页码全部正确（不一致 0）**。
+  2. 表22/23 结构错位：模板 {{table.org_chart}} 占位符移到「组织机构表」标题下（坑56）。
+  3. 表标题/表格分页 + 空白页：删标题与表格之间的硬分页符（主因，坑55）+ keepNext 只绑紧贴表格的标题 → 第34页=表22+"人力资源表"标题+表23开头同页；第35页=表23续+"硬件环境资源表"标题+表24开头同页；总页数 51→49（消掉 2 个空白页）。
+- 复核确认已达标项：表头空格 162 个文本残留 0；数据行空格 0（袁总说的"空格"确为表头 \xa0 与" / "）；142 个内容控件全部 LockContents=True（CB-B/DSQ-1AG 14/14、R105 111/113、软件名+任务书整句锁定）；表10/表11 sdt 锁定；1.1b 显示"有2个配置项"且锁定；前端配置项弹窗 Playwright 实测通过。
+- 已知项（不影响使用）：末页（第49页）空白——模板自带 pict 图形段落导致，未再深挖。
+- 验证脚本：temp/verify_final.py（Word 实测：目录页码全量/空白页/标题表格同页）、diag_pages.py（逐页取文本）、diag_sectpos.py、diag_subproc2.py、patch_tpl_orgchart.py；后端服务 backend/services/word_pages.py（COM 子进程）。
+
+## 2026-09-03（第三十九轮：袁总 7 问题全闭环——12/12 断言+Word 实测+Playwright 实测）
+- 袁总 7 问题：①TOC 目录页码更新；②1.1b) 多配置项前端后端数据库+锁定；③CB-B/DSQ-1AG/R105/软件名+任务书锁定；④表10/11 锁定+角色从库来前端可配；⑤表13 空格；⑥表22/23 标题跳页（说了不止三次）；⑦表24/25/附录A/B/C.1 空格（说了不下三次）。
+- 全部闭环（细节见记忆库 ID 62807344）：
+  1. TOC 页码：COM 内存更新域按书签收集 PAGEREF 真实页码（88 处）Python 回写。
+  2. 1.1b)：shell.js 顶栏"修改项目"弹窗已有配置项区块（Playwright 实测预填2项/增删/保存全通）；文档显示"有2个配置项：…、IAP下位机软件"且锁定。
+  3. 锁定：新坑52（单段全锁漏锁）修复后 CB-B/DSQ-1AG 14/14 全锁；模板静态型号 5 处改占位符；{{sys.taskbook}} 整句锁定。
+  4. 表10（模板已 {{role.ccb}} 等占位符+前端设置页可配）/表11 → READONLY_TABLE_KEYS 整表 sdt 锁定。
+  5/7. 空格真身=表头 \xa0 与" / "：_compact_table_headers 全局清理（162 个表头文本残留 0）。
+  6. _add_caption_keepnext 44 处表标题与表格保持同页。
+- 顺手修复：settings.js 死按钮 settingsEditProj（有调用无定义）替换为配置项按钮。
+- 验证：verify_round39.py 12/12 PASS + Word COM 实测（50 页/页眉/无修复弹窗）+ 配置项 API 增删改回读还原 + Playwright 顶栏弹窗实测。后端已重启跑新代码，前端 8080 UP。
+
+## 2026-09-03（第三十八轮：页眉丢失/总页码/表格格式全面对标 R121——5 个根因级 bug 全修复，端到端全绿）
+- 袁总指令：生成的开发计划所有格式（特别是表格）严格对标 R121_SDP_V1.00.docx，不要再出上次问题；页眉还是没有、封面总页码还是错。
+- **用 parse_docx_tables.py 真实 dump R121（37 表）vs R105 生成（35 表）逐项对标**（不再写松断言），本轮 5 个根因级修复：
+
+### 根因1·页眉丢失（header4/5 全空）——_merge_runs 嵌套表格 bug
+- header4/5（正文/附录页眉"配置项标识 R105_SDP_V1.00 版本 V1.00 页码 5 CEC设表022c（D版）"）26/52 个 w:t 全空。
+- 真凶：doc_engine.WordInjector._merge_runs 用 `_all_tags(p,'r')` **递归**收集段落 run；页眉 XML 里整张表格嵌在 w:p 内，join 后含 `{{` 触发合并 → 删除"其余" run（= 表格各格的 run 全删）→ 全表文本清空；且第一个 run 无 w:t 时 new_text 也丢。
+- 修复：段落含 tbl 直接 return（单元格内段落稍后独立处理）+ first_t 为空时新建 w:t。
+- 教训：**递归收集元素时必须防御嵌套表格**——页眉部件存在"表格嵌在段落里"的非标准结构。
+
+### 根因2·√ 错位——STAGE_COL_IDX 硬编码 7 格布局
+- header1 阶段表实际 9 格 [密级,空,空,阶段,F,C,S,D,P]，第三十七轮按 7 格写死 {"F":2,"C":3,...} → phase=初样(C) 的 √ 落到 idx3"阶段"标签格。R121 原版 √ 在 idx5（C 列）。
+- 修复：动态定位——row0 每格 join 全部 w:t 后 strip，精确等于字母的格即目标列，任何布局都对。
+
+### 根因3·封面总页码错——两层问题
+- 层1：Word **懒分页**——Fields.Update 时文档未完全分页，NUMPAGES 算出 6（真实 46/50 页）。必须先 ComputeStatistics(2) 强制全量分页。
+- 层2：**Word COM Fields.Update+Save 会产出坏 XML**（sdtContent 标签不闭合，lxml 解析失败，Word 每次打开可能弹修复框）。二分法定位：只 Open+Save XML OK，加了域更新就 BAD——是 Word 序列化 bug。
+- 最终方案：COM **只读**打开→ComputeStatistics 取真实页数 N→不保存→Python 直接改 document.xml 里 NUMPAGES 域 separate~end 之间的 w:t 缓存为 N。XML 全程合法。
+
+### 根因4·附录表格被压坏——_fit_tables_to_page 不分节
+- 附录节（sect#4）是横向页（pgSz w=16838，可用宽 14406），R121 附录C 表原宽 14613 本来正常；旧代码取第一个 sectPr 的纵向宽 9468 压所有表 → 附录宽表列挤压换行"表格太长"。
+- 修复：按文档序收集各节可用宽 [9468,9590,9590,14406]，遍历时 sectPr 切换、每表用所在节的宽。跳过嵌套表。
+
+### 根因5·表22/23"和到一起"——相邻 tbl 无段落分隔
+- OOXML 里两张相邻 w:tbl 会被 Word 合并渲染为一张表。模板相邻占位符段落被整表替换后触发。
+- 修复：新增 _separate_adjacent_tables，所有同父级相邻表对之间插空段落（实测分隔 1 处）。
+
+### 对标 R121 落地（dump 逐列取证）
+- {{meta.doc_number}} 补入 _meta_ph_map（此前 ph_map 缺此键→页眉占位符不替换）。
+- 表22 组织机构列宽恢复 R121 [3885,2976,2070]；表23 人力资源 7列→**6列**（"参加项目"“时段"合列），列宽 R121 [653,1169,1556,3180,1129,1169]；附录C 列宽 R121 [549,1088,1774,1027,915,1654,2746,1546,1648,1666]；表21 进度表恢复 R121 [2279,1701,2025,1417]（第三十七轮自调的废弃）。会议/硬件/软件资源列宽第三十七轮已对标。
+- R121 表格对标工具沉淀：temp/parse_docx_tables.py（docx→JSON 全格式 dump：列宽/jc/vAlign/sz/b/gridSpan/vMerge）、temp/verify_tables_v5.py（对标校验）、temp/diag_word_repair.py（二分定位 Word 坏 XML）。
+
+### 终验（全部实测，非断言）
+- gen_v5/v6 全流程：页眉4/5恢复、√ 在 C 列、NUMPAGES=50、document.xml+3个header XML 全合法（lxml）。
+- Word COM 只读打开：无修复弹窗、总页数 50、三节页眉文本可见（sect1 CEC设表022a、sect2/3 CEC设表022c）。
+- HTTP 端到端（POST /api/doc/R105/SDP/generate，登录 xin.zhengfeng）：200，322KB，页眉/NUMPAGES=50/XML 全对。
+- 全表终检：35 表，空格残留 0、超宽 0、未居中 0。
+- 验证脚本：temp/gen_v5.py、temp/test_api_gen.py、temp/verify_word_v6.py、temp/verify_tables_v5.py、temp/diag_stages.py（分阶段防回归）。
+
+## 2026-09-03（第三十七轮：5 项紧急修复 + 严格对标 verify_v4 10/10 全 PASS）
+- 袁总紧急反馈 5 项：①页眉没有了；②表格空格多没删+封面总页数没刷新+表21太长列宽/空格；③表22/23 没调整乱；④21 个问题很多没改到位；⑤CB-B/DSQ-1AG 不能编辑。袁总"睡觉起来非常生气"+"5 次分析+5 次验证+对标 R121 5 次"+卸载警告。
+- 根因（每项严格 5 轮分析+对标 R121）：
+  1. **页眉"没有了"**：_apply_header_protection 用 `head.index(letter)` 算 idx，因 head 含"密级/阶段"占位单元格 + 多 w:t 拆分，导致 letter="S" 算出 idx=5（D 列）而非 4（S 列），√ 落在错列 + row1 大面积清空 → 袁总觉得"页眉空了"。R105 实际 phase="初样"→√ 应在 C 列（已修复 √ 在 C 列 idx=3）。
+  2. **表格空格残留**：_center_index_columns 表级 SKIP_TRIM_HEADS（"文  件  分  发"/"更    改    栏"/"通用质量特性"）跳过整个表，cell#62 介质发放、cell#63 纸质/磁盘/光盘 前后空格残留。
+  3. **CB-B/DSQ-1AG 锁了**：LOCKED_PLACEHOLDER_KEYS 含 `{{sys.short}}`，与本文件 700-702 行注释"sys.short 不列入锁定白名单"自相矛盾（注释正确，代码违背）。注释明确说"sys.short 在正文大量出现，若锁定会让正文不可编辑"。
+  4. **封面总页数没刷新**：NUMPAGES 域真实存在 + settings updateFields=True（生成端正确），袁总看到没刷新是 Word 打开时未自动重算（按 F9 / 打印会刷），已确认。
+  5. **表21/22/23 列宽**：build 函数列宽配置（表21 备注列 1417 太窄→撑行高大；表22 职责列 4424 太宽→不均衡；表23 序号列 500 太窄→袁总觉得乱）。
+- **严重教训（22/22 PASS 是假绿）**：第三十五轮 verify_r105_recheck.py 断言极松——⑨仅查 'jc=center' 字符串、⑫仅查 'CB-B/DSQ-1AG' 存在（应在锁内才 PASS 反而错）、⑮仅查首行宽、⑱⑲仅查文本匹配。完全没验证页眉 √ 位置 / 表格 w:t 真实空格字符 / CB-B 可编辑 / NUMPAGES 域真实状态 / 表21-23 列宽 / 对标 R121。袁总愤怒的真实根因。
+- 落地（每项严格 5 轮分析+对标 R121）：
+  - A: `doc_service.py` LOCKED_PLACEHOLDER_KEYS 移除 `{{sys.short}}`（按 700-702 注释口径）。
+  - B: `doc_service.py` _apply_header_protection 阶段联动改固定列序 `STAGE_COL_IDX={"F":2,"C":3,"S":4,"D":5,"P":6}`（不再用 head.index(letter)）。
+  - C: `doc_service.py` _center_index_columns 取消 SKIP_TRIM_HEADS 表级跳过；strip() 只去前后不动中间（"纸    质"中间对齐空格完整保留）；清理空格文本数 21→29（多 8 处 SKIP 表内残留）。
+  - D: `table_builder.py` build_org_chart_tbl col_w [2800,2200,4424]→[3000,2200,4224]；build_human_resource_tbl [500,1100,1700,1800,1300,1000,1400]→[600,1100,1800,1800,1200,1000,1300]；build_schedule_phases_tbl [2279,1701,2025,1417]→[2000,1500,1800,1700]（紧凑 7422→7000，备注列 1417→1700）。
+- 验证 temp/verify_v4.py（严格对标）：**10/10 全 PASS**（CB-B 不在 sdt 锁内=0；页眉表头 9 列含 F/C/S/D/P，row1 唯一 √ 在 C 列 idx=3，8 个空；表格空格残留=0；表21 列宽 [2000,1500,1800,1700] 比例 1.000；表22 [2953,2165,4158] 比例 0.984（_fit 等比缩）；表23 [1434,1052,1721,1721,1147,956,1243] 比例 0.956；占位符 0；段B功能描述保留）。
+- 交付：d:\5000\tempFile\sdp_r105_recheck_v4.docx
+- 后端：temp/kill_backend.ps1 + temp/start_backend.ps1 重启 9 个旧 spawn worker，新代码生效。
+
+## 2026-09-03（第三十六轮：1.1 段B功能描述恢复+可编辑，段A名称动态归属修正）
+- 袁总确认（续第三十五轮"待确认⑥"）："保留原功能描述文字 + 仅设为可编辑"。
+- 根因：第三十四轮 fix_tpl_11b.py 把 1.1 段B（原功能描述"{{sys.short}}IAP下位机软件有初始化模块…"）整段替换为 {{sys.cfg_items}}（配置项清单）并去锁，导致原功能描述丢失；且需求③"配置项名称动态"被错放到段B，而非段A。
+- 落地（temp/fix_11b_v3.py，从原始备份 bak_11b_funcdesc 重做）：
+  - 段A：重建为"{{sys.name}}有{{sys.cfg_count}}个配置项：{{sys.cfg_items}}。"（数量+名称都从 Project.cfg_items 动态读取，需求③正确归属）；
+  - 顺修段A历史冗余"软件软件"（{{sys.name}}已含"软件"，原模板又硬拼"软件"）→ 去掉多余"软件"；
+  - 段B：恢复 HEAD 原功能描述文字（IAP下位机软件模块构成，对标 R105 原版），不包只读sdt → 可编辑。
+- 验证 temp/verify_11b_v3.py：段A名称动态(占位符0残留)、段B功能描述已恢复、段B editable、全文档占位符0残留。
+- 回归 temp/verify_r105_recheck.py（基于本轮模板生成 sdp_r105_recheck_v3.docx）：22/22 全 PASS（sdt锁109→114，无功能回归）。
+- 交付：d:\5000\tempFile\sdp_r105_recheck_v3.docx
+- 遗留：⑩表7 袁总原需求截断("表7…")，待袁总补充具体格式要求后再做。
+
+## 2026-09-03（第三十五轮：21条整改项复查闭环 + 需求2落地）
+- 袁总指令：对之前提出的21条问题再次复查，有问题修改（遵循三轮分析+真实验证）。
+- 可确认清单=覆盖页6+1(7)+本轮10+签字日期+表7，合并去重约21项。
+- 综合复查 temp/verify_r105_recheck.py：22/22 全PASS（占位符0残留、型号CB-B/DSQ-1AG、NUMPAGES、锁109、1.1b、续表、列宽无超宽、表5居中、org_chart、基线顿号等）；本轮大改模板未引入回归。
+- 发现并修复 需求2：封面编号"R105_SDP_V1.00"仅前缀锁/V1.00可编辑 原未做（综合复查⑱为假PASS）。落地：
+  - 模板 p#17 {{meta.doc_number}}→sdt锁({{meta.doc_prefix}})+可编辑({{meta.doc_ver_edit}})
+  - 后端 _meta_ph_map 拆 doc_no 为 doc_prefix/doc_ver_edit（正则 ^(.*_)(V[\d.]+)$）；LOCKED 白名单移除整串 doc_number（doc_version 保留锁背封）
+  - 签字日期 {{meta.approve_date}} 前轮已移出 LOCKED→可编辑（需求2签字部分早已满足）
+  - 验证 temp/verify_cover2.py：封面拼接R105_SDP_V1.00、前缀在只读sdt内、V1.00在锁外可编辑、占位符0残留 → 需求2通过
+- 待袁总确认：⑥段B现为配置项名称清单(可编辑)，原功能描述文字已移除，是否需保留原功能描述；⑩表7原需求截断("表7…")，请补充具体格式要求。
+- 交付：d:\5000\tempFile\sdp_r105_11b.docx
+
+## 2026-09-03（第三十四轮：1.1 配置项动态化 + 需求5/8 局部只读锁）
+- 袁总需求（10项截图）：①封面页数自动更新；②封面R105_SDP_V1.00前缀锁/V1.00+签字日期可编辑；③1.1 b 配置项数量与名称动态（前端/库/后端）；④删冗余"下位机软件 下位机软件"；⑤仅CB-B/DSQ-1AG锁/软件研制任务书句锁；⑥段B功能描述可编辑；⑦表2超页边；⑧仅软件名锁；⑨表5居中去空格；⑩表7…
+- 落地：
+  - ③：模板段A"有两个配置项"→{{sys.cfg_count}}、段B整段→{{sys.cfg_items}}（保留缩进去只读permStart）；后端 Project.cfg_items(Text JSON)+session迁移预置R105两配置项+data_service/projects API读写+doc_service._meta_ph_map注入cfg_count/cfg_names。
+  - ④：段B前冗余"{{sys.short}}IAP下位机软件  下位机软件"整p删除。
+  - ⑤/⑧：模板局部只读sdt(sdtContentLocked)锁定 software_full软件研制任务书整句(5b)+仅software_full名(8，初始化模块段拆run)；sys.short(CB-B/DSQ-1AG)走全局LOCKED_PLACEHOLDER_KEYS。
+  - ⑦：扫描生成文档21表首行列宽均≤9278，_fit_tables_to_page已生效，无超页边。
+  - ⑨：前轮已完成(_center_index_columns+trim空格)。①：前轮NUMPAGES域已实现。
+- 验证：temp/fix_tpl_all.py（段落级，避免跨文档回溯）干净重做1.1b+5b+8；temp/verify_sdp_11b.py生成R105 SDP：cfg_count/cfg_items/全sys占位符0残留、含"2个配置项"及两配置项名；sdt锁保留(software_full占位符在sdt内仍被正确替换)。
+- 待袁总确认：②封面编号拆前缀锁/V1.00可编辑+签字日期可编辑；⑥段B现为配置项名称清单(可编辑)，是否需保留原功能描述文字；⑩表7等后续需求补充。
+- 交付：d:\5000\tempFile\sdp_r105_11b.docx
+
+## 2026-09-02（第三十轮：与人相关字段"从系统读+不可编辑"6+1 项全落地）
+- 袁总需求（截图+文字）：①测试人员从系统读且不可编辑，举一反三"跟人有关的东西"都要从系统读+不可编辑；②表13基线列表"基线包含的配置项"多配置项用顿号分开；③表22组织机构表缺失→参考R121建立；④表C.1数据管理表跨页续表排布；⑤项目相关方冒号后的值从平台读且不可编辑；⑥表21软件进度表整表居中；⑦表23人力资源表人名从平台取且不可编辑。
+- 落地：
+  - A：`doc_service.LOCKED_PLACEHOLDER_KEYS` 加 14 个 `{{role.*}}` + 6 个 `{{org.*}}` + `{{sys.short}}`（相关方现场）→ sdt 锁定。
+  - E：`Project` 加 user_dept/maintainer/site/plan_site 4 字段（DB ALTER + R105 预置）；模板里项目相关方 6 行本就是占位符，ph_map 补齐 org.user_dept/org.maintainer/org.site/org.plan_site 映射。
+  - F：`_simple_tbl` 加 align 参数 → tblPr 内 `<w:jc w:val="center"/>`，`build_schedule_phases_tbl` 传 align="center"。
+  - B：`ConfigItem` 重构（ci_id 单主键→id 自增+唯一键 uk_proj_blid_ci(project_id,baseline_id,ci_id)，加 project_id/baseline_name/baseline_id）→ 按【基线标识】分组聚合（5 条真实基线，功能→分配→产品排序），组内 ci_id 用"、"连接；新建 dao/config_item_dao.py + build_baselines_tbl + 模板替换 {{table.baselines}}；seed 31 条 R105 真实配置项。
+  - G：`ProjectMember` 加 skill_req/join_project/period/effort_pct；新建 dao/project_member_dao.py + build_human_resource_tbl + 模板替换 {{table.human_resource}}。
+  - C：新建 `org_chart` 表 + dao/org_chart_dao.py + build_org_chart_tbl + 模板插 {{table.org_chart}}（在人力资源表前）+ seed 5 条真实机构（许宏刚/廖建英/辛峥峰/孙超/软件项目组）。
+  - D：`replace_table_anchor` 扩展支持多兄弟元素（包 `<w:root>` 解析）→ build_data_mgmt_tbl 33 行拆 3 张（12 行/张），第 2/3 张前插"表C.1（续）"标题。
+  - 前端：`resources.py` 加 org-chart/config-items CRUD + ProjectMemberIn 扩 4 字段（pydantic camelCase 别名）；api.js 加 8 个方法；user.js 加「组织机构表」「配置项与基线」两面板 + 项目人员表加技术素质/时段/投入精力 3 列。
+- 验证：文档级 `temp/verify_all2.py` **23/23 全绿**（lxml 用 XML 树祖先判断 w:sdt 锁定，勿用字符窗口——sdt 包在表前可达 5000+ 字符，最初误判 6 项 FAIL）；前端 `temp/verify_frontend_user2.py` **16/16 全绿**（Playwright 先登录 xin.zhengfeng/123456；input 值须用 eval_on_selector_all 读 value，inner_text 读不到，否则误判）。
+- 交付：D:\5000\5000BManagePro\docs\R105_SDP_最终.docx（322565B）。
+- 新坑（已写入记忆）：①run_backend.py 多 worker(8)，taskkill 主进程不杀 spawn 子进程→孤儿 worker 仍占 8000，新进程 bind 失败却探测"UP"，跑的还是旧代码（症状：新 model 字段报 has no attribute）；须 Get-CimInstance 列出全部 python 进程一起杀。②pydantic2 多词字段前端 camelCase/后端 snake_case 不统一→静默丢弃或 400，须 ConfigDict(populate_by_name=True)+Field(alias="camelName")。③kill_all_backend.ps1 会连前端 8080 一起杀，重启后端后要补起前端。
+- 待办：上次任务"第3项删除某表格"仍等袁总补截图后再做。
+
+## 2026-09-02（第三十一轮第三轮：序号列"序/号"竖排→横排）
+- 袁总反馈：表 4 软件实现阶段系数表，"序号"两字被 Word 竖排（"序"上"号"下），序号列左侧有大片空白，看起来"前面的空格没去掉"。
+- 排查（temp/diag_table4.py + check_tpl_td.py）：
+  - 模板默认无 textDirection（值 lrTb 为 Word 默认横排）
+  - 但 `<w:tblLayout w:type="autofit"/>` 让 Word 自动重算列宽，"序号"两字在东亚 token 下
+    默认被 Word 当独立 token 处理 + 单元格偏紧，导致两字竖排
+  - 单一修复（仅加不间断空格 `\u00A0` + 列宽 900→1100 + noWrap）实测无效（Word COM 转 PDF 仍竖排）
+- 修复（五管齐下，必须全部做才生效）：
+  ① **`<w:textDirection w:val="lrTb"/>`** 显式覆盖模板继承的 tbRl（但 lrTb 实际是默认值，主要是显式声明横排）
+  ② **`<w:tblLayout w:type="fixed"/>`** 强制固定布局（不再 autofit 重算）
+  ③ **序号列宽 900→1500 dxa**（足够容纳"序\u00A0号"两字横排+数字）
+  ④ **不间断空格 \u00A0 + xml:space=preserve**（语义兜底）
+  ⑤ **清掉 `<w:snapToGrid w:val="0"/>`**（段落 + 所属表 tblPr 都要清，snapToGrid 多在 tblPr 里——之前漏了）
+- 验证：14 张含序号列表全部 5 项属性生效；Word COM 转 PDF 后 page 12（开发工具系数表）"序号"两字横排居中，无前导空白。回归 23/23 + 空格 5/5 + 横排 3/3 全绿。
+- **关键教训**：东亚"两字中文 token"在 Word 里默认会被竖排渲染，必须显式声明横排方向+固定列宽+足够宽度三管齐下，单一属性压不住。
+- 验证脚本：temp/verify_horizontal_seq.py（lxml 校验 5 项）。
+
+## 2026-09-02（第三十一轮：全文档表格序号列/表体多余空格清理）
+- 袁总需求：文档中有表格的地方，表头的序号列和表体有一些空格，请删除掉。
+- 诊断（temp/diag_seq_space.py + diag_all_space.py）：序号列**文本本身无空格**，空格来自两处——
+  ①模板静态表残留的前后空白/纯空白文本（如序号类别系数表 `'12.8 '`、配置项表 `' /文档/测试文件'`、引用文件表 `' '`）；
+  ②模板继承的悬挂缩进 `w:ind(left=-480, firstLine=480)`（资料名称表序号列），造成序号视觉偏移与留白（全文档 850 处 ind）。
+- 修复：`doc_service._center_index_columns` 扩展——
+  ①**去重空白**：表级统一对全部单元格 `w:t` 做 strip（含全角空格），纯空白文本清空；
+  ②**清序号列缩进**：序号列段落移除 `w:ind`；
+  ③**保留例外**：靠空格手工对齐的固定格式表（SKIP_TRIM_HEADS = 文  件  分  发 / 更    改    栏 / 通用质量特性）跳过，避免删空格后签署页/文件分发排版塌陷。
+- **关键坑（易复发）**：trim 逻辑必须放在 `if not idx_cols: continue` **之前**，否则无序号列的数据表（如配置项表）会被提前 continue 跳过导致空格残留——第一版就踩了，扫出来仍是 7 处。
+- 验证：`temp/verify_no_space.py` **5/5**（32 张数据表：0 前后空格 / 0 纯空白 / 0 序号列 ind；签署分发表 8 处手工空格保留）；前七项回归 `temp/verify_all3.py` **23/23 未破坏**。
+- 交付：D:\5000\5000BManagePro\docs\R105_SDP_去空格.docx（322541B）。
+
+## 2026-09-02（SDP 序号分两行修复 + 表5可编辑）
+- 需求：①截图"表7会议计划"等所有有序号列表头"序号"被 Word 拆成"序/号"两行，前面很多表都中招；②表5「各阶段工作量估计」需改为可编辑。
+- 根因：序号列宽窄(511~750dxa)+未禁自动换行 → Word 把"序号"断行；表5命中 READONLY_TABLE_KEYS['调整后总工作量'] 被 sdtContentLocked 锁死。
+- 改动：table_builder.py `_cell` 加 nowrap 参数→`<w:noWrap/>`；`_simple_tbl`/利益相关方/风险表 4 行表头加 nowrap=True（动态表源头防断行）。doc_service.py：①READONLY_TABLE_KEYS 移除 '调整后总工作量'（表5可编辑，软件进度表/会议计划本未锁）；②`_center_index_columns` 增强——序号列所有单元格(含模板静态表 #9/#13/#19/#24/#27)补 `<w:noWrap/>`，0 遗漏兜底。
+- 验证(全绿)：语法+lint；XML 级序号 noWrap 13/13 无遗漏；表5 可编辑而文档规模/附录A/B/C 仍锁定；Word COM(dynamic.Dispatch 绕过损坏 gen_py 缓存)实测表5 写入测试 OK、文档无损坏；HTTP save-to-local 全链路落盘 OK。
+- 交付：D:\5000\R105\R105_SDP_最新.docx（324187B）。后端已重启(uvicorn 无 --reload)。
+- 新坑：win32com EnsureDispatch/Dispatch 报 gen_py 缓存 'has no attribute CLSIDToClassMap' → 删 C:\Users\25007\AppData\Local\Temp\gen_py\3.9 下 00020905 目录，且用 win32com.client.dynamic.Dispatch 绕过。验证脚本沉淀：temp/verify_seq_edit.py(noWrap+锁定表回归)、temp/verify_http_doc.py(HTTP闭环)、temp/word_com_check.py(COM实测)、temp/diag_seq_tables.py、temp/gen_verify_doc.py。
+- 待办：上次任务第3项"删除某表格"等袁总补截图后再做。
+
+
+
+
+
+
+
+
+
+## 2026-09-02（第二十九轮：表5各阶段工作量估计补表/归位）
+- 模板结构定位：SDP_占位符版.docx [194]各阶段工作量估计 图注下无表（跳到计划的监控）；
+  6 章 [393]软件进度表→[394]{{table.schedule_phases}}(4列:阶段/开始/结束/备注, 列宽已对标
+  R121[2279,1701,2025,1417])，其下 [395] 误放 {{table.schedule}}(6列工作量表) → 5章缺表/6章突兀双错。
+- 修复：move_schedule_tbl.py 把 {{table.schedule}} 段移到 各阶段工作量估计 图注之后（对标 R121 布局），
+  模板 SDP_占位符版.docx 直接改（该模板被所有项目共用，R121 同样受益）。
+- 验证（字符串顺序）：图注@322819 → 调整后总工作量表@324786 → 计划的监控@332073 顺序对；
+  6章软件进度表后已无 schedule 表。
+- 教训：verify 遍历 body 直接子元素会漏掉被 sdt 只读包裹的表（表头含'调整后总工作量'→READONLY 命中→sdt内），
+  需用字符串偏移或含 sdtContent 的递归验证。
+- 序号前导空格在新生成文件=0（gridCol 900 修复后已无），用户截图疑为 Word 旧缓存。
+## 2026-09-02（第二十八轮：序号列根治 + 检视小组锁定）
+
+### 序号列竖排根因（重要）
+- fix_round2 只改了 tcW 没改 tblGrid/gridCol——fixed 布局下 Word 优先按 gridCol 渲染，
+  tcW 被忽略，所以之前多次加宽无效。
+- 修复：_center_index_columns 中 gridCol 与 tcW 同步设 900 dxa，11 张含序号列表全生效。
+
+### 检视小组（5.7.2.5）
+- 发现：模板本就是占位符 检视小组：{{role.author}}、{{role.requirement}}。
+  辛峥峰/马慧芳就是从 projects 表（设置页可编辑）读取的，只差锁定。
+- 修复：LOCKED_PLACEHOLDER_KEYS 加 {{role.author}}、{{role.requirement}}。
+- 验证：5.7.2.5 处两人均被 sdtContentLocked 包裹（同一锁定区），封面/签署页人名同步锁定；
+  评审计划等数据表里的人名是动态表数据，不受占位符白名单管，保持可编辑（符合口径）。
+## 2026-09-02（第二十七轮：表格全面对标 R121）
+### 对标解析（parse_r121.py，R121_SDP_V1.02.docx）
+- 硬件表31 列宽原文 [511,1347,1314,2024,1572,1262,1489] 总9519
+- 软件表32 列宽原文 [557,1545,1110,2683,992,1407,1346] 总9640
+- 数据管理表35/36/37 列宽原文 [567,1206,1984,1134,1001,1834,1386,1733,1875,1893] 总14613（横向）
+- R121 续表做法：33 行手动拆 3 张表（每张带表头）；采用更优方案 tblHeader（Word 跨页自动重复表头）
+- R121 对齐风格：数据表几乎所有单元格 jc=center + vAlign=center（数据管理表 jc中=174）
+
+### 落地（table_builder.py + doc_service.py）
+1. _row 加 header 参数（<w:tblHeader/>），_simple_tbl 表头行 header=True —— 所有动态表跨页自动重复表头
+2. 三张附录表 col_w 逐列取 R121 原值
+3. _center_index_columns 扩展：含序号列的数据类表【整表所有单元格】水平+垂直居中（不止序号列）
+
+### 验证（单实例监听=1）
+硬件表 tblHeader=True jc中=50 vAlign中=49；软件表 同；数据管理表 jc中=341 vAlign中=340 全覆盖。
+## 2026-09-02（第二十六轮：全表序号列居中）
+- 需求：所有表格序号列居中（此前只处理了模板 5 张，动态生成的表没盖到）。
+- 方案：doc_service.py 新增后处理 _center_index_columns（lxml 遍历全部 w:tbl 含 sdt 内），
+  表头=序号 的列 → 全列 vAlign=center + 段落 jc=center；挂在 _apply_header_protection 之后。
+- 验证（单实例监听=1 前提下）：11 张含序号列表 / 144 个序号单元格 / 144 居中 / 0 遗漏。
+- 该后处理永久生效于后续每次生成。
+## 2026-09-02（第二十五轮：附录列宽根治——双重根因）
+
+### 为什么改了5次都没解决（双重根因，教训重大）
+1. **表层根因 tblLayout fixed**：table_builder.py 所有表构建器（_simple_tbl/风险表/利益相关方表）
+   都写死 <w:tblLayout w:type=\qfixed\q/>——固定布局，Word 按字面列宽死板渲染，内容再长也不扩展。
+   修复：全部改 autofit（3处 replace_all），Word 打开时按内容自动伸展列宽。
+2. **进程根因 孤儿worker（坑24/32 重演且更严重）**：8000 端口被【3个独立服务实例】
+   （父PID 18012/20912/18888）+ 各5-6个 multiprocessing spawn 子worker 同时监听。
+   Windows 允许多进程重复 bind 同端口，请求随机分发——之前几轮【重启后请求仍打到旧代码进程】，
+   所以改代码从未真正生效！taskkill/Stop-Process 杀父进程无效（子worker持有socket），
+   必须按 CommandLine 匹配 spawn_main|multiprocessing 杀掉所有子进程才算清干净。
+3. 上轮另一个错误：数据管理表是横向页（可用宽14406），我按纵向页思路改成总宽9000——反而改窄。
+
+### 本次生效的修复（已验证 autofit + 新列宽）
+- 硬件表: [520,1300,2150,2150,1280,1000,1000] 总9400（型号列 1298→2150）
+- 软件表: [520,1350,2150,2000,1180,1100,1100] 总9400（型号列 1082→2150 翻倍）
+- 数据管理表: [480,1000,1900,950,950,2300,1300,1700,1900,1926] 总14406（横向页）
+
+### 铁律
+- 改后端代码后必须确认【真正只有1个进程实例】在服务（netstat 数 LISTENING 条数=1），
+  否则验证结果是旧代码的假象。
+- 杀后端必须杀 multiprocessing spawn 子进程，不能只杀父进程/按端口PID。
+## 2026-09-02（第二十四轮：附录表格列宽）
+### 已完成
+- 表25/26 硬件+软件环境资源表（7列）：按 600/1700/1900/2400/1100/800/600 等列宽重分配，表水平居中
+- 表33 附录C 数据管理表（10列）：按 550/850/1100/700/750/1300/800/850/900/700 重分配
+- 直接在生成文件 R105_SDP_v3.docx 上修复（这三张表由生成代码动态加，模板里没有）
+
+### 未完成（待办）
+- **附录B 完整版利益相关方参与计划表**：模板里**只有 3 列简化版**（序号|活动|利益相关方），缺完整版 13 列（项目代表/项目经理/部门领导/项目负责人/系统工程组/EPG/QAG/CMG/OTG）。需按 R121_SDP_V1.02.docx 添加表格结构（大工程）。
+- **附录A 项目风险管理表**：模板里**完全没有这张表**。需按 R121 标准添加（识别/风险类别/风险描述/P/I/级数/风险预防/责任人/风险应对/状态/关闭日期）。
+
+### 重要发现
+- 某些表是 doc_service.py 动态构建的（不在 templates/sdp/SDP_占位符版.docx 里）。下次重启后端再生成时，列宽修复会被覆盖——必须同步改 doc_service.py 的表生成代码。
+## 2026-09-02（第二十三轮：模板修复——TOC 前言/表4/序号列宽/表14列宽）
+
+### 已完成（模板层用 lxml 改 SDP_占位符版.docx）
+1. **删 TOC "前言"项**：之前查 document.xml "前言"=0 是因为 TOC 缓存文字是
+   `<w:t>前   言</w:t>`（前+三个空格+言），不是 "前言"。匹配不到所有变体。
+   修复：搜 `_Toc19813` 域指令定位，删整段。
+2. **删"表4 IAP下位机软件代码规模估计"标题段**：保留后面的"软件实现阶段工作量和项目总工程工作量估计"。
+3. **5 个"序号"列加宽居中**：遍历所有 <w:tbl>，首行首列含"序号"则把所有行的 first cell
+   tcW 改 800 dxa + vAlign=center + 段落 jc=center。涉及会议计划/文档规模估计/相关方/评审等表。
+4. **表14 基线列表列宽**：1500/1500/4500/2500 dxa，表水平居中。
+
+### 待办（需后端+模板配合，单做模板无效）
+- **检视小组来自平台数据库**（图6）：当前"辛峥峰、马慧芳"是模板硬编码，
+  需后端从 reviewers/staff 表读取，前端录入后回填到 docx；并按只读保护原则 sdt 锁定。
+- **表24 人力资源表**（[305]/[411]）来自平台 staff 表内容。
+- **表23 组织机构表**：当前文档无此表（dump 未找到"组织机构"），
+  需对标 R121_SDP_V1.02.docx 添加 org_chart 表。
+- **页码 F9 自动**：已设 updateFields=true（标准做法），Word 打开时会自动重算。
+  若袁总仍按 F9，请检查 Word 选项"打开文档时自动更新域"是否勾选。
+  唯一无 Word COM 的情况下，无法在生成时预计算真实总页数。
+
+### 技术小坑
+- lxml.etree.fromstring 不接受带 encoding 声明的 unicode str，必须 .encode("utf-8") 传 bytes，
+  否则报 "Unicode strings with encoding declaration are not supported"。
+## 2026-09-02（第二十三轮：模板修复——TOC 前言/表4/序号列宽/表14列宽）
+
+### 已完成（模板层用 lxml 改 SDP_占位符版.docx）
+1. **删 TOC "前言"项**：之前查 document.xml "前言"=0 是因为 TOC 缓存文字是
+   `<w:t>前   言</w:t>`（前+三个空格+言），不是 "前言"。匹配不到所有变体。
+   修复：搜 `_Toc19813` 域指令定位，删整段。
+2. **删"表4 IAP下位机软件代码规模估计"标题段**：保留后面的"软件实现阶段工作量和项目总工程工作量估计"。
+3. **5 个"序号"列加宽居中**：遍历所有 <w:tbl>，首行首列含"序号"则把所有行的 first cell
+   tcW 改 800 dxa + vAlign=center + 段落 jc=center。涉及会议计划/文档规模估计/相关方/评审等表。
+4. **表14 基线列表列宽**：1500/1500/4500/2500 dxa，表水平居中。
+
+### 待办（需后端+模板配合，单做模板无效）
+- **检视小组来自平台数据库**（图6）：当前"辛峥峰、马慧芳"是模板硬编码，
+  需后端从 reviewers/staff 表读取，前端录入后回填到 docx；并按只读保护原则 sdt 锁定。
+- **表24 人力资源表**（[305]/[411]）来自平台 staff 表内容。
+- **表23 组织机构表**：当前文档无此表（dump 未找到"组织机构"），
+  需对标 R121_SDP_V1.02.docx 添加 org_chart 表。
+- **页码 F9 自动**：已设 updateFields=true（标准做法），Word 打开时会自动重算。
+  若袁总仍按 F9，请检查 Word 选项"打开文档时自动更新域"是否勾选。
+  唯一无 Word COM 的情况下，无法在生成时预计算真实总页数。
+
+### 技术小坑
+- lxml.etree.fromstring 不接受带 encoding 声明的 unicode str，必须 .encode("utf-8") 传 bytes，
+  否则报 "Unicode strings with encoding declaration are not supported"。
+## 2026-09-02（第二十二轮：页码 NUMPAGES 域修复 + 全量核对）
+
+### 页码联动修复（本轮核心）
+- 根因：backend/services/doc_service.py 的 _apply_doc_fields 第 (2b) 步把 total_pages
+  当 fallback 插到 <w:fldChar end> **之后（域外）**，成为普通文本，
+  导致生成文件里「（共 18 页）」是死数字，新增页永不更新。
+- 修复：改为写入**域内**（separate 与 end 之间），这才是 Word 认可的“域结果”位置，
+  打开时 updateFields=true 会用真实总页数覆盖它，实现新增页联动。
+- 安全：替换前向前找最近 instrText 校验是 NUMPAGES，避免误改 PAGEREF 域结果
+  （否则目录页码会被整体改成总页数）。
+- 模板侧：templates/sdp/SDP_占位符版.docx 原生「共X页」是**坏域**
+  （begin -> instrText -> end，缺 separate），已用 lxml 重建为标准结构
+  （begin -> instrText -> separate -> 结果 -> end），坏域去重（NUMPAGES 数 2 -> 1）。
+
+### 核对脚本误报教训（重要，避免再次“幻觉式核对”）
+1. 正则 20\d\d-\d\d-\d\d 在**整个 document.xml** 上跑会匹配到 XML 属性
+   （如 w:w="2025" 列宽数字），误报“日期未改”。**必须只在 <w:t> 正文文本里搜**。
+2. 搜“各阶段工作量估计”找不到表7，因为真实表头是
+   「开发阶段|阶段比例|工程类工作量（人日）|…」。
+   **应列出全部表格表头再匹配，不要靠猜标题**。
+3. body.findall(w:tbl) 只取 body 直接子级，会漏掉 sdt 包裹的表（10 张平台表），
+   必须用 iter() 递归统计。
+
+### 精确核对结果
+- 页码：NUMPAGES 域=1，结果在域内，updateFields=true，无域外写死数字，新增页可联动。
+- 表7 各阶段工作量估计：存在（表索引 25, rows=7），此前“缺失”是搜索词错误导致的误判。
+- 签字页：20250315 × 8 处；正文剩余 14 处 2024-xx-xx 是平台进度计划业务日期
+  （非签字日期，保留正确）。
+- 电子签名图片：已删（drawing=0），签署人姓名保留（正确，要删的是签名图不是名字）。
+- SDTD：R105_SDTD_V1.00 已生效；占位符残留=0；缩略语重复段=0；表格 32 张（27 张居中）。
+
+### 底纹现状（待袁总确认）
+_shade_readonly_tables 目前在 _apply_sdt_readonly 中被**主动注释**，
+代码注释写明“按袁总要求平台表不再加底色”。
+所以“颜色没了”不是丢失，是按需关闭。**袁总 2026-09-02 拍板：全部保留无色**，_shade_readonly_tables 维持注释，不得再恢复调用。
+
+## 2026-09-02（第二十轮：会议计划改可编辑；项目用户=客户单位；软件标识号子表；列宽对标复核）
+1) **袁总确认**：①软件标识号用**子表 project_software（一对多）** ②"模板上删除"项暂缓（袁总待回忆）③项目用户先复用 customer_dept ④可编辑项指 1.2.3/项目相关方的描述段 ⑤会议计划确实要可编辑 ⑥表格位置问题暂缓 ⑦基线列表"整体太挤"要调列宽并对标 R121。
+2) **会议计划表改为可编辑**：在 `_wrap_readonly_tables_with_sdt` 中跳过表头同时含"会议类型/会议组织者/会议时机"的表——不加 sdt 包裹（仍执行居中）。验证：会议计划被锁数=0（可编辑）✅。
+3) **项目用户=客户单位**：模板"项目用户：xxx" → "项目用户：{{org.customer_dept}}"，生成后为"项目用户：中国电子科技集团公司第二十九研究所" ✅。
+4) **软件标识号子表**：`models.py` 新增 `ProjectSoftware`（project_id/software_id/software_name/seq/remark），建表并预置 R105 的两个软件：R105_0201(终点/轮载开关模拟器驱动软件)、R105_0202(CB-B/DSQ-1AG IAP 下位机软件) ✅。DAO/API/前端"修改项目"弹窗软件列表/文档占位符待下轮。
+5) **列宽复核（#8#10#12#14）**：逐表 dump 与 R121 对比——规模估计及复用表(891/3235/1794/1748/1748)、基线列表(763/2551/4204/1895)、会议计划(750/3364/1485/3587)、附录B矩阵(12列 R121 原文)**列宽均与 R121 完全一致**，序号列 jc 均为 center（已居中）✅。基线列表"太挤"是 R121 原版列宽特性（基线名称列仅 763twips≈1.35cm），"对标 R121"即应保持；若要更宽松需加大字号/行高（待袁总定）。
+6) 教训：用户反馈"序号未居中/列宽有问题"时，先逐表 dump 列宽与 jc 与基准对比再下结论——本次实测多张表**早已与基准一致**，此前因 dump 的 KEYS 未覆盖目标表（表头文字不含表名）而误判为"未验证"。
+7) 待办：软件标识号的 DAO/API/前端 UI/文档占位符；模板删除项（袁总待回忆）；表格位置问题（暂缓）；基线列表是否加大字号/行高。
+
+## 2026-09-02（第十九轮：表3标题改软件名称；彻底消除表格"底色"；确认序号居中本已具备）
+1) **袁总指令**：①表3标题用"软件名称"（非型号）②做居中 ③所有表格有底色的问题都得去掉。
+2) **表3标题改软件名称**：模板 `{{sys.short}}文档规模估计及复用情况` → `{{sys.software_full}}文档规模估计及复用情况`，生成后为"终点/轮载开关模拟器驱动软件文档规模估计及复用情况"。（sys.short=型号 CB-B/DSQ-1AG，sys.software_full=软件名称，此前袁总给的占位符是型号，本轮按其"软件名称"口径更正。）
+3) **"底色"真因（重要）**：统计生成文件 shd 只有 FFFFFF/auto，**并无彩色底纹**。袁总看到的灰色是 **Word 对内容控件(sdt)的默认外观显示**（边框/底纹），不是 w:shd。
+   修复：在两处 sdt 生成中加入 `<w:appearance w:val="hidden"/>`（doc_engine._lock_run_of 的 inline sdt、doc_service._wrap_readonly_tables_with_sdt 的 block sdt），实测 appearance_hidden=124 = sdt 总数，全部隐藏外观。
+4) **序号居中**：核查 `table_builder._cell()` 早已输出 `<w:jc w:val="center"/>` + `<w:vAlign w:val="center"/>`，所有单元格（含序号列）默认即居中，无需改动。
+5) **验证**：appearance_hidden=124、shd_fills={auto:83, FFFFFF:157}、tables=32、表3标题正确、占位符残留 0；真实 Word COM 打开 pages=45、text_chars=27821、ContentControls=124。文件已更新 D:/5000/R105/R105_SDP_最新.docx。
+6) 教训沉淀：用户反馈"有底色"时，先统计 w:shd 的 fill 分布确认是否真有底纹；若无，则多半是 Word 对内容控件/受保护区域的外观显示，应通过 `w:appearance=hidden` 或"停止保护"消除，而不是去找 shd。
+
+## 2026-09-02（第十八轮：锁定白名单收窄；平台表去底色；删表2+改表3标题；修复封面页数域）
+1) **袁总指令**（含多张截图）：①正文/描述性段落要可编辑 ②只有核心字段（封面R105、软件名称、版本、配置项标识、签署日期、SDTD编号）不可编辑 ③删"表2 文档规模估计"，只留表3，且表3标题改为 `{{sys.short}}文档规模估计及复用情况` ④多张平台表去掉底色、序号列居中（表3/4/9/11/15/26/27、附录A/B/C）⑤编号改 R105_SDTD_V1.00 ⑥时间字段从 MPP→DB→文档 ⑦封面页数仍不显示。
+2) **锁定白名单机制**（核心改动）：`WordInjector.fill_tree` 增加 `lock_keys` 参数，**只有命中白名单的占位符**替换后才包 inline sdt；其余数据库读入的描述性正文保持可编辑。白名单收窄为 8 个键（meta.project_id/doc_number/doc_version/doc_ver_tag/approve_date/total_pages、sys.software_full、header.form_no）——去掉 sys.short/org.*/ref.*/cm.svn_*，因其在正文高频出现会锁死正文。锁定数 163 → 113。
+3) **平台表去底色**：`_apply_sdt_readonly` 不再调用 `_shade_readonly_tables`（按袁总最新口径），实测 shade_FFF2CC=0。
+4) **删表2 + 改表3标题**（改模板 templates/sdp/SDP_占位符版.docx）：删除 `{{table.doc_scale_est}}` 锚点段落及其标题段落；表3标题段落改为 `{{sys.short}}文档规模估计及复用情况`（生成后为"CB-B/DSQ-1AG文档规模估计及复用情况"）。表数 32（原 33）。
+5) **封面页数真因与修复**（关键）：模板封面 NUMPAGES 域**非法嵌套在 `<w:t>` 内部**（`<w:t>（共 <w:r><w:fldChar/>...`），`<w:t>` 不能含 run → Word 解析后域失效，显示"（共页）"。修复脚本 `temp/fix_cover_pages_field.py` 把域 run 提取为平级序列。踩坑：正则未消耗外层 `</w:r>` 导致 XML 标签失衡(后端 500)，补上后修复成功，并用备份回退。
+6) **验证**：非法嵌套 0、NUMPAGES 2 处、shade_FFF2CC=0、tables=32、表3标题正确、占位符残留 0；真实 Word COM 打开 **pages=45**（页数可正常计算）、text_chars=27819、ContentControls=123。
+7) 待办（本轮未做，需袁总进一步确认）：MPP 时间字段导入数据库（需先确认 Project 表字段与 MPXJ 依赖）；部分描述性字段（IAP概述/引用文件等）从静态改为数据库字段。
+
+## 2026-09-02（第十七轮：页眉阶段联动+锁定；补两张表；附录B按图校准数据；非表格占位符锁定）
+1) **袁总指令**：①"袁总"字样与前端AI化文案清理 ②优先做页眉联动+锁定，后补3张表 ③按图校准 DB 数据 ④专门做非表格占位符锁定。
+2) **页眉阶段联动+锁定**（提交 2425648）：新增 `_apply_header_protection()`——页眉阶段表(密级|阶段|F|C|S|D|P)行1 只在平台所选阶段对应字母列打√（映射 F方案/C初样/S正样/D定型/P批产，R105 phase=初样→C列），其余列清空；阶段表与所有含"配置项标识"的页眉段落用 sdt 锁定。踩坑：非贪婪正则 `<w:tbl>.*?</w:tbl>` 遇嵌套表格在内层截断致 header XML 标签失衡（验证报 mismatched tag），改 `_balanced_span()` 标签平衡扫描；并修正"把字母列表索引当单元格索引"的 bug（曾致√被清空未填回），用 `_set_cell_text()` 保证清空与填入成对。
+3) **补表**（提交 42b8823）：更正误判——相关方参与计划矩阵(12列/9角色)**本就存在**（表头跨列合并只显示3格，按行0字符串比对误判缺失）。真补 2 张：在模板按 R121 章节位置插入锚点 `{{table.doc_scale_est}}`（文档规模估计表4列）与 `{{table.schedule_phases}}`（进度阶段表，新增 `build_schedule_phases_tbl`）。表数 31→33，占位符残留 0。
+4) **数据校准**（提交 af7de28）：删除 stakeholder_plan 中 seq=13(其它/双周例会)，附录B 与基准图一致（12 行、无"其它"阶段）。
+5) **非表格占位符锁定**（提交 af7de28）：`WordInjector.fill_tree` 加 lock 参数，替换标量占位符后把该 run 包成 inline sdt(sdtContentLocked)；新增 `_lock_run_of()`。只锁含占位符的 run → 签字页/用户填写区天然不锁，无需额外标记。踩坑：①边遍历 lxml 边改树致 500（改先收集后修改）；②新方法插入位置错误吞掉 fill_tree 的"第3步跨run合并"致 NameError（代码归位修复）。
+6) **验证**：inline sdt 163 + 平台表 block sdt 10 = 173，全部 sdtContentLocked；真实 Word COM 打开 text_chars=28321、tables=32、ContentControls=173 且 LockContents 173/173；占位符残留 0；相关方表 15 行无"其它"。
 
 ## 2026-09-02（第十六轮：袁总11点——Word生成质量专项整治 + build/tools安装包 + 提交）
 1) **第1点根因（方案移植漏项）**：上轮(第十轮)`_protect_readonly_zones`=①perm保护+②`_shade_readonly_tables`黄底纹(FFF2CC)两件事；换 sdt 方案时只移植①、落下② → "保护在、颜色没了"。修复：`_apply_sdt_readonly` 内补 `_shade_readonly_tables(doc)`，实测恢复 FFF2CC=955 处。
@@ -537,3 +993,51 @@
 - 前后端 JSON 通信全链路验证通过（create/list/delete/400/CORS）
 - 建库脚本 scripts/init_db.py，自检 scripts/verify_backend.py
 - 记忆：建 session-init.md / project-context.md
+
+## 2026-09-04（第四十一轮：附录紧贴分页 + 1.1.b 两行格式 + 目录页码 3 大根因）
+【袁总新需求】截图 1.1.b 红框点中 "IAP下位机软件R105_0202"（紧贴无空格，与第一行"终点/轮载开关模拟器驱动软件             R105_0201"格式不一致）；
+另要求附录A 项目风险管理表 + 附录B 利益相关方参与计划表 与前面表格挨着、删掉 48 页、目录页码与实际不一致。
+
+【三轮分析】
+1. 需求分析：截图核心问题是"1.1.b 第二行缺中间空格与缩进"；附录A/B/C 不应独立占整页；目录 PAGEREF 应与 Word 实际显示页码对齐。
+2. 影响分析：①_xxx11b_cfg_items 旧版"清空纯空白 run t"误删 sdt 间 run " " 和 "            "；
+              ②appendix B/C 标题段【后】的空段里有 pageBreakBefore（不是段本身）→ 标题留上页尾、表跳下页头、且每附录独占一页；
+              ③R121 模板 final sectPr pgNumType.start=34（写死）），R121 正文长不重叠，R105 正文短"项目组织"等就到 34-37，
+                让附录 A 从 34 开始 → "项目资源 视觉页 34" 与"附录A 视觉页 34"重号，用户视觉两个"页 34"。
+3. 举一反三：所有 sdt 行内 run 不应被任何"清理空白"循环误删；所有分节符（含页内嵌 sectPr）必须按"标题后空段"扫描；所有正文
+              较短的 R105 项目都可能撞上 pgNumType.start 写死问题。
+
+【修复实施】（3 个真修复全部 Word COM 实测验证）
+1) 1.1.b 第二行格式：删 _xxx11b_cfg_items 里"清空纯空白 run t"那段循环，避免 deep copy 第一行时"sdt[0]"与"sdt[1]"之间的
+   视觉分隔 " " 与 12 空格缩进 "            " 被清成 ""（Word 序列化为自闭合 <w:t/> → 文本消失）。
+   实测两行格式：
+     - [R105_0201] '终点/轮载开关模拟器驱动软件             R105_0201'
+     - [R105_0202] 'IAP下位机软件             R105_0202'  ✓ 完全一致
+
+2) 附录 A/B 紧贴 + 删 48 页：新增 _unify_appendix_pages，扫描所有"附录A/附录B/附录C"标题段，删其后空段里的 pageBreakBefore；
+   附录 A/B 给标题加 keepNext；附录 C 不加（横版高度 11906 dxa 不够装整块，加了反而让标题单独占页）。
+   实测：总页数 49 → 46，附录 A 视觉=全局=目录=38；附录 B=39；附录 C=41。
+
+3) 目录页码与实际对齐：R121 模板 final sectPr pgNumType.start=34 写死。R105 正文短会重号。
+   修复：新增 _adjust_appendix_pgnumtype，调用 word_pages.py 子进程扫每页首段找"附录A"所在全局页号（38），
+   改 final sectPr 的 pgNumType.start=38，让附录 C 节从 38 重新编号。
+   word_pages.py 增加 appendix_a_global 输出，用 doc.GoTo 逐页扫首段判定（不能用 Range.Information(1)，，
+   旧版 API 返回节内页号 start=34 而非全局位置）。
+   实测：88 个 PAGEREF 全部对齐（视觉页号 = 全局页号 = 目录 PAGEREF 缓存值）。
+
+【关键代码位置】
+- backend/services/doc_service.py
+  - _xxx11b_cfg_items 内删 # ③ 段间空白 t 清空 循环
+  - 新增 _unify_appendix_pages()（删标题后空段 PB + 标题 KN）
+  - 新增 _adjust_appendix_pgnumtype()（改 final sectPr pgNumType.start）
+  - generate_doc_bytes() 调用顺序：_tighten_appendix_captions → _unify_appendix_pages → _adjust_appendix_pgnumtype → _apply_doc_fields → _update_fields_with_word → _fix_11b_cfg_items
+- backend/services/word_pages.py：新增 appendix_a_global 字段输出（逐页扫首段）
+
+【验证脚本沉淀】temp/final_verify.py（5 项全量核对）：总页数=46，1.1.b 两行格式一致，
+附录A/B/C 视觉页=全局页=目录页（PAGEREF），88 个 PAGEREF 全部对齐，签字页结构 7 行 OK。
+
+【关键教训】(举一反三)
+1. 任何"清理空白/格式化"循环必须先看模板原始 XML（deep copy 后"被清"与"原本就是空"无法区分）；
+2. PageBreakBefore 不一定在标题段上，可能是标题后的空段——必须看实际 XML 不能凭印象；
+3. Word COM Range.Information(1) 受 sectPr.pgNumType.start 影响返回"节内视觉页号"，
+   拿全局绝对页号必须 doc.GoTo(wdGoToPage,wdGoToAbsolute) 跳到该位置——这是前几轮一直踩的坑。
